@@ -20,6 +20,7 @@ const (
 	KindGateway   = "Gateway"
 	KindHTTPRoute = "HTTPRoute"
 	KindTLSRoute  = "TLSRoute"
+	KindUDPRoute  = "UDPRoute"
 	KindService   = "Service"
 	KindSecret    = "Secret"
 
@@ -47,6 +48,7 @@ type Resources struct {
 	Gateways        []*v1beta1.Gateway
 	HTTPRoutes      []*v1beta1.HTTPRoute
 	TLSRoutes       []*v1alpha2.TLSRoute
+	UDPRoutes       []*v1alpha2.UDPRoute
 	ReferenceGrants []*v1alpha2.ReferenceGrant
 	Namespaces      []*v1.Namespace
 	Services        []*v1.Service
@@ -93,12 +95,13 @@ type TranslateResult struct {
 	Gateways   []*v1beta1.Gateway
 	HTTPRoutes []*v1beta1.HTTPRoute
 	TLSRoutes  []*v1alpha2.TLSRoute
+	UDPRoutes  []*v1alpha2.UDPRoute
 	XdsIR      XdsIRMap
 	InfraIR    InfraIRMap
 }
 
 func newTranslateResult(gateways []*GatewayContext,
-	httpRoutes []*HTTPRouteContext, tlsRoutes []*TLSRouteContext,
+	httpRoutes []*HTTPRouteContext, tlsRoutes []*TLSRouteContext, udpRoutes []*UDPRouteContext,
 	xdsIR XdsIRMap, infraIR InfraIRMap) *TranslateResult {
 	translateResult := &TranslateResult{
 		XdsIR:   xdsIR,
@@ -113,6 +116,9 @@ func newTranslateResult(gateways []*GatewayContext,
 	}
 	for _, tlsRoute := range tlsRoutes {
 		translateResult.TLSRoutes = append(translateResult.TLSRoutes, tlsRoute.TLSRoute)
+	}
+	for _, udpRoute := range udpRoutes {
+		translateResult.UDPRoutes = append(translateResult.UDPRoutes, udpRoute.UDPRoute)
 	}
 
 	return translateResult
@@ -134,10 +140,13 @@ func (t *Translator) Translate(resources *Resources) *TranslateResult {
 	// Process all relevant TLSRoutes.
 	tlsRoutes := t.ProcessTLSRoutes(resources.TLSRoutes, gateways, resources, xdsIR)
 
+	// Process all relevant UDPRoutes.
+	udpRoutes := t.ProcessUDPRoutes(resources.UDPRoutes, gateways, resources, xdsIR)
+
 	// Sort xdsIR based on the Gateway API spec
 	sortXdsIRMap(xdsIR)
 
-	return newTranslateResult(gateways, httpRoutes, tlsRoutes, xdsIR, infraIR)
+	return newTranslateResult(gateways, httpRoutes, tlsRoutes, udpRoutes, xdsIR, infraIR)
 }
 
 func (t *Translator) GetRelevantGateways(gateways []*v1beta1.Gateway) []*GatewayContext {
@@ -1394,6 +1403,182 @@ func (t *Translator) ProcessTLSRoutes(tlsRoutes []*v1alpha2.TLSRoute, gateways [
 	}
 
 	return relevantTLSRoutes
+}
+
+func (t *Translator) ProcessUDPRoutes(udpRoutes []*v1alpha2.UDPRoute, gateways []*GatewayContext, resources *Resources,
+	xdsIR XdsIRMap) []*UDPRouteContext {
+	var relevantUDPRoutes []*UDPRouteContext
+
+	for _, t := range udpRoutes {
+		if t == nil {
+			panic("received nil udproute")
+		}
+		udpRoute := &UDPRouteContext{UDPRoute: t}
+
+		// Find out if this route attaches to one of our Gateway's listeners,
+		// and if so, get the list of listeners that allow it to attach for each
+		// parentRef.
+		relevantRoute := processAllowedListenersForParentRefs(udpRoute, gateways, resources)
+		if !relevantRoute {
+			continue
+		}
+
+		relevantUDPRoutes = append(relevantUDPRoutes, udpRoute)
+
+		for _, parentRef := range udpRoute.parentRefs {
+			// Skip parent refs that did not accept the route
+			if !parentRef.IsAccepted(udpRoute) {
+				continue
+			}
+
+			// Need to compute Route rules within the parentRef loop because
+			// any conditions that come out of it have to go on each RouteParentStatus,
+			// not on the Route as a whole.
+			var routeDestinations []*ir.RouteDestination
+
+			// compute backends
+			for _, rule := range udpRoute.Spec.Rules {
+				for _, backendRef := range rule.BackendRefs {
+					if backendRef.Group != nil && *backendRef.Group != "" {
+						parentRef.SetCondition(udpRoute,
+							v1beta1.RouteConditionResolvedRefs,
+							metav1.ConditionFalse,
+							v1beta1.RouteReasonInvalidKind,
+							"Group is invalid, only the core API group (specified by omitting the group field or setting it to an empty string) is supported",
+						)
+						continue
+					}
+
+					if backendRef.Kind != nil && *backendRef.Kind != KindService {
+						parentRef.SetCondition(udpRoute,
+							v1beta1.RouteConditionResolvedRefs,
+							metav1.ConditionFalse,
+							v1beta1.RouteReasonInvalidKind,
+							"Kind is invalid, only Service is supported",
+						)
+						continue
+					}
+
+					if backendRef.Namespace != nil && string(*backendRef.Namespace) != "" && string(*backendRef.
+						Namespace) != udpRoute.Namespace {
+						if !isValidCrossNamespaceRef(
+							crossNamespaceFrom{
+								group:     v1beta1.GroupName,
+								kind:      KindTLSRoute,
+								namespace: udpRoute.Namespace,
+							},
+							crossNamespaceTo{
+								group:     "",
+								kind:      KindService,
+								namespace: string(*backendRef.Namespace),
+								name:      string(backendRef.Name),
+							},
+							resources.ReferenceGrants,
+						) {
+							parentRef.SetCondition(udpRoute,
+								v1beta1.RouteConditionResolvedRefs,
+								metav1.ConditionFalse,
+								v1beta1.RouteReasonRefNotPermitted,
+								fmt.Sprintf("Backend ref to service %s/%s not permitted by any ReferenceGrant", *backendRef.Namespace, backendRef.Name),
+							)
+							continue
+						}
+					}
+
+					if backendRef.Port == nil {
+						parentRef.SetCondition(udpRoute,
+							v1beta1.RouteConditionResolvedRefs,
+							metav1.ConditionFalse,
+							"PortNotSpecified",
+							"A valid port number corresponding to a port on the Service must be specified",
+						)
+						continue
+					}
+
+					// TODO: [v1alpha2-v1beta1] Replace with NamespaceDerefOr when TLSRoute graduates to v1beta1.
+					serviceNamespace := NamespaceDerefOrAlpha(backendRef.Namespace, udpRoute.Namespace)
+					service := resources.GetService(serviceNamespace, string(backendRef.Name))
+					if service == nil {
+						parentRef.SetCondition(udpRoute,
+							v1beta1.RouteConditionResolvedRefs,
+							metav1.ConditionFalse,
+							v1beta1.RouteReasonBackendNotFound,
+							fmt.Sprintf("Service %s/%s not found", serviceNamespace, string(backendRef.Name)),
+						)
+						continue
+					}
+
+					var portFound bool
+					for _, port := range service.Spec.Ports {
+						if port.Port == int32(*backendRef.Port) {
+							portFound = true
+							break
+						}
+					}
+
+					if !portFound {
+						parentRef.SetCondition(udpRoute,
+							v1beta1.RouteConditionResolvedRefs,
+							metav1.ConditionFalse,
+							"PortNotFound",
+							fmt.Sprintf("Port %d not found on service %s/%s", *backendRef.Port, serviceNamespace, string(backendRef.Name)),
+						)
+						continue
+					}
+
+					weight := uint32(1)
+					if backendRef.Weight != nil {
+						weight = uint32(*backendRef.Weight)
+					}
+
+					routeDestinations = append(routeDestinations, &ir.RouteDestination{
+						Host:   service.Spec.ClusterIP,
+						Port:   uint32(*backendRef.Port),
+						Weight: weight,
+					})
+				}
+
+				// TODO handle:
+				//	- no valid backend refs
+				//	- sum of weights for valid backend refs is 0
+				//	- returning 500's for invalid backend refs
+				//	- etc.
+			}
+
+			for _, listener := range parentRef.listeners {
+				irKey := irStringKey(listener.gateway)
+				irListener := xdsIR[irKey].GetUDPListener(irListenerName(listener))
+				if irListener != nil {
+					irListener.Destinations = routeDestinations
+				}
+				// Theoretically there should only be one parent ref per
+				// Route that attaches to a given Listener, so fine to just increment here, but we
+				// might want to check to ensure we're not double-counting.
+				if len(routeDestinations) > 0 {
+					listener.IncrementAttachedRoutes()
+				}
+			}
+			parentRef.SetCondition(udpRoute,
+				v1beta1.RouteConditionAccepted,
+				metav1.ConditionFalse,
+				v1beta1.RouteReasonNoMatchingListenerHostname,
+				"There were no hostname intersections between the HTTPRoute and this parent ref's Listener(s).",
+			)
+
+			// If no negative conditions have been set, the route is considered "Accepted=True".
+			if parentRef.udpRoute != nil &&
+				len(parentRef.tlsRoute.Status.Parents[parentRef.routeParentStatusIdx].Conditions) == 0 {
+				parentRef.SetCondition(udpRoute,
+					v1beta1.RouteConditionAccepted,
+					metav1.ConditionTrue,
+					v1beta1.RouteReasonAccepted,
+					"Route is accepted",
+				)
+			}
+		}
+	}
+
+	return relevantUDPRoutes
 }
 
 // processAllowedListenersForParentRefs finds out if the route attaches to one of our

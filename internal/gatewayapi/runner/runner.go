@@ -70,6 +70,7 @@ func (r *Runner) subscribeAndTranslate(ctx context.Context) {
 		in.ReferenceGrants = r.ProviderResources.GetReferenceGrants()
 		in.HTTPRoutes = r.ProviderResources.GetHTTPRoutes()
 		in.TLSRoutes = r.ProviderResources.GetTLSRoutes()
+		in.UDPRoutes = r.ProviderResources.GetUDPRoutes()
 		in.Services = r.ProviderResources.GetServices()
 		in.Namespaces = r.ProviderResources.GetNamespaces()
 		gatewayClasses := r.ProviderResources.GetGatewayClasses()

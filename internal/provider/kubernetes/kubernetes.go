@@ -61,6 +61,10 @@ func New(cfg *rest.Config, svr *config.Server, resources *message.ProviderResour
 		return nil, fmt.Errorf("failed to create tlsroute controller: %w", err)
 	}
 
+	if err := newUDPRouteController(mgr, svr, updateHandler.Writer(), resources); err != nil {
+		return nil, fmt.Errorf("failed to create udproute controller: %w", err)
+	}
+
 	// Add health check health probes.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return nil, fmt.Errorf("unable to set up health check: %w", err)

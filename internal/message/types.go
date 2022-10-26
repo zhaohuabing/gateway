@@ -17,6 +17,7 @@ type ProviderResources struct {
 	Gateways       watchable.Map[types.NamespacedName, *gwapiv1b1.Gateway]
 	HTTPRoutes     watchable.Map[types.NamespacedName, *gwapiv1b1.HTTPRoute]
 	TLSRoutes      watchable.Map[types.NamespacedName, *gwapiv1a2.TLSRoute]
+	UDPRoutes      watchable.Map[types.NamespacedName, *gwapiv1a2.UDPRoute]
 	Namespaces     watchable.Map[string, *corev1.Namespace]
 	Services       watchable.Map[types.NamespacedName, *corev1.Service]
 	Secrets        watchable.Map[types.NamespacedName, *corev1.Secret]
@@ -26,6 +27,7 @@ type ProviderResources struct {
 	GatewayStatuses   watchable.Map[types.NamespacedName, *gwapiv1b1.Gateway]
 	HTTPRouteStatuses watchable.Map[types.NamespacedName, *gwapiv1b1.HTTPRoute]
 	TLSRouteStatuses  watchable.Map[types.NamespacedName, *gwapiv1a2.TLSRoute]
+	UDPRouteStatuses  watchable.Map[types.NamespacedName, *gwapiv1a2.UDPRoute]
 }
 
 func (p *ProviderResources) GetGatewayClasses() []*gwapiv1b1.GatewayClass {
@@ -68,6 +70,17 @@ func (p *ProviderResources) GetTLSRoutes() []*gwapiv1a2.TLSRoute {
 	}
 	res := make([]*gwapiv1a2.TLSRoute, 0, p.TLSRoutes.Len())
 	for _, v := range p.TLSRoutes.LoadAll() {
+		res = append(res, v)
+	}
+	return res
+}
+
+func (p *ProviderResources) GetUDPRoutes() []*gwapiv1a2.UDPRoute {
+	if p.UDPRoutes.Len() == 0 {
+		return nil
+	}
+	res := make([]*gwapiv1a2.UDPRoute, 0, p.UDPRoutes.Len())
+	for _, v := range p.UDPRoutes.LoadAll() {
 		res = append(res, v)
 	}
 	return res

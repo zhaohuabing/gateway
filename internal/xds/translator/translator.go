@@ -97,6 +97,23 @@ func Translate(ir *ir.Xds) (*types.ResourceVersionTable, error) {
 
 		tCtx.AddXdsResource(resource.ListenerType, xdsListener)
 	}
+
+	for _, udpListener := range ir.UDP {
+		// 1:1 between IR UDPListener and xDS Cluster
+		xdsCluster, err := buildXdsCluster(udpListener.Name, udpListener.Destinations)
+		if err != nil {
+			return nil, multierror.Append(err, errors.New("error building xds cluster"))
+		}
+		tCtx.AddXdsResource(resource.ClusterType, xdsCluster)
+
+		// 1:1 between IR UDPListener and xDS Listener
+		xdsListener, err := buildXdsUDPListener(xdsCluster.Name, udpListener)
+		if err != nil {
+			return nil, multierror.Append(err, errors.New("error building xds listener"))
+		}
+
+		tCtx.AddXdsResource(resource.ListenerType, xdsListener)
+	}
 	return tCtx, nil
 }
 

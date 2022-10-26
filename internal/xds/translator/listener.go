@@ -3,12 +3,15 @@ package translator
 import (
 	"errors"
 
+	xdscore "github.com/cncf/xds/go/xds/core/v3"
+	matcher "github.com/cncf/xds/go/xds/type/matcher/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	tls_inspector "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
+	udp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -136,6 +139,68 @@ func buildXdsTCPListener(clusterName string, tcpListener *ir.TCPListener) (*list
 				TypedConfig: tlsInspectorAny,
 			},
 		}}
+	}
+
+	return xdsListener, nil
+}
+
+func buildXdsUDPListener(clusterName string, udpListener *ir.UDPListener) (*listener.Listener, error) {
+	if udpListener == nil {
+		return nil, errors.New("udp listener is nil")
+	}
+
+	statPrefix := "udp"
+
+	route := &udp.Route{
+		Cluster: clusterName,
+	}
+	routeAny, err := anypb.New(route)
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := &udp.UdpProxyConfig{
+		StatPrefix: statPrefix,
+		RouteSpecifier: &udp.UdpProxyConfig_Matcher{
+			Matcher: &matcher.Matcher{
+				OnNoMatch: &matcher.Matcher_OnMatch{
+					OnMatch: &matcher.Matcher_OnMatch_Action{
+						Action: &xdscore.TypedExtensionConfig{
+							TypedConfig: routeAny,
+						},
+					},
+				},
+			},
+		},
+	}
+	mgrAny, err := anypb.New(mgr)
+	if err != nil {
+		return nil, err
+	}
+
+	filterChain := &listener.FilterChain{
+		Filters: []*listener.Filter{{
+			Name: "envoy.filters.udp_listener.udp_proxy",
+			ConfigType: &listener.Filter_TypedConfig{
+				TypedConfig: mgrAny,
+			},
+		}},
+	}
+
+	xdsListener := &listener.Listener{
+		Name: getXdsListenerName(udpListener.Name, udpListener.Port),
+		Address: &core.Address{
+			Address: &core.Address_SocketAddress{
+				SocketAddress: &core.SocketAddress{
+					Protocol: core.SocketAddress_UDP,
+					Address:  udpListener.Address,
+					PortSpecifier: &core.SocketAddress_PortValue{
+						PortValue: udpListener.Port,
+					},
+				},
+			},
+		},
+		FilterChains: []*listener.FilterChain{filterChain},
 	}
 
 	return xdsListener, nil
