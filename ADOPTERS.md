@@ -40,4 +40,3 @@ If you would like to be included in this table, please submit a PR to this file 
    - Tetrate provides Enterprise Gateway (TEG) to end users, which includes a 100% upstream distribution of Envoy Gateway, and management to deliver applications securely, authenticate user traffic, protect services with rate limiting and WAF, and integrate with your observability stack to monitor and observe activity.
 * Status: production
 * (Option) https://tetrate.io/wp-content/uploads/2023/03/tetrate-logo-dark.svg
-* (Option) Description:
