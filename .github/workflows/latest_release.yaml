@@ -26,7 +26,7 @@ jobs:
     - uses: ./tools/github-actions/setup-deps
 
     - name: Generate Release Manifests
-      run: make generate-manifests IMAGE=envoyproxy/gateway-dev TAG=latest OUTPUT_DIR=release-artifacts
+      run: make generate-manifests IMAGE=tetrate/gateway-dev TAG=latest OUTPUT_DIR=release-artifacts
 
     - name: Build egctl latest multiarch binaries
       run: |
@@ -83,7 +83,7 @@ jobs:
           We use `v0.0.0-latest` as the latest chart version to install latest envoy-gateway:
 
           ```shell
-          helm install eg oci://docker.io/envoyproxy/gateway-helm --version v0.0.0-latest -n envoy-gateway-system --create-namespace
+          helm install eg oci://docker.io/tetrate/gateway-helm --version v0.0.0-latest -n envoy-gateway-system --create-namespace
           ```
 
           Try latest version of `egctl` with:

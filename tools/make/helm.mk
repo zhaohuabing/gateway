@@ -4,7 +4,7 @@
 
 include tools/make/env.mk
 
-OCI_REGISTRY ?= oci://docker.io/envoyproxy
+OCI_REGISTRY ?= oci://docker.io/tetrate
 CHART_NAME ?= gateway-helm
 CHART_VERSION ?= ${RELEASE_VERSION}
 
