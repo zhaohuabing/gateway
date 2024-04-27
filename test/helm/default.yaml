@@ -368,7 +368,7 @@ spec:
               fieldPath: metadata.namespace
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: cluster.local
-        image: docker.io/envoyproxy/gateway-dev:latest
+        image: docker.io/tetrate/gateway-dev:latest
         imagePullPolicy: Always
         livenessProbe:
           httpGet:
@@ -516,7 +516,7 @@ spec:
               fieldPath: metadata.namespace
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: cluster.local
-        image: docker.io/envoyproxy/gateway-dev:latest
+        image: docker.io/tetrate/gateway-dev:latest
         imagePullPolicy: Always
         name: envoy-gateway-certgen
       restartPolicy: Never

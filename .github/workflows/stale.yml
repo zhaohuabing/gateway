@@ -14,7 +14,7 @@ jobs:
     name: Prune Stale
     runs-on: ubuntu-22.04
     # do not run it in forked repos
-    if: github.repository == 'envoyproxy/gateway'
+    if: github.repository == 'tetrateio/gateway'
 
     steps:
     - name: Prune Stale
