@@ -1,0 +1,5 @@
+date: April 26, 2024
+
+changes:
+  - area: api
+      Added support for modifying http2 listener settings using ClientTrafficPolicy
