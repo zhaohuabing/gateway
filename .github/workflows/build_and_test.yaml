@@ -154,8 +154,8 @@ jobs:
       if: github.event_name == 'push'
       uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20  # v3.1.0
       with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+        username: ${{ secrets.TETRATE_DOCKERHUB_USER }}
+        password: ${{ secrets.TETRATE_DOCKERHUB_PASS }}
 
     - name: Setup Multiarch Environment
       if: github.event_name == 'push'
