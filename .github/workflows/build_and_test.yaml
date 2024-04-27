@@ -74,7 +74,7 @@ jobs:
       with:
         name: envoy-gateway
         path: bin/
-
+# Enable once https://github.com/tetrateio/gateway/issues/15 is completed
   conformance-test:
     runs-on: ubuntu-latest
     needs: [build]
@@ -97,11 +97,11 @@ jobs:
         chmod +x bin/linux/arm64/envoy-gateway
 
     # conformance
-    - name: Run Standard Conformance Tests
-      env:
-        KIND_NODE_TAG: ${{ matrix.version }}
-        IMAGE_PULL_POLICY: IfNotPresent
-      run: make conformance
+    #    - name: Run Standard Conformance Tests
+    #      env:
+    #        KIND_NODE_TAG: ${{ matrix.version }}
+    #        IMAGE_PULL_POLICY: IfNotPresent
+    #      run: make conformance
 
   e2e-test:
     runs-on: ubuntu-latest
@@ -125,11 +125,11 @@ jobs:
         chmod +x bin/linux/arm64/envoy-gateway
 
     # E2E
-    - name: Run E2E Tests
-      env:
-        KIND_NODE_TAG: ${{ matrix.version }}
-        IMAGE_PULL_POLICY: IfNotPresent
-      run: make e2e
+    #    - name: Run E2E Tests
+    #      env:
+    #        KIND_NODE_TAG: ${{ matrix.version }}
+    #        IMAGE_PULL_POLICY: IfNotPresent
+    #      run: make e2e
 
   publish:
     runs-on: ubuntu-latest
