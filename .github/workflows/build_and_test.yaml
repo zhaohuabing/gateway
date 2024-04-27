@@ -133,8 +133,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    # Enable once https://github.com/tetrateio/gateway/issues/15 is completed
-    # needs: [conformance-test, e2e-test]
+    needs: [conformance-test, e2e-test]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
