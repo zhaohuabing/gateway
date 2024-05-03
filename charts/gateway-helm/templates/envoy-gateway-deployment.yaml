@@ -69,8 +69,7 @@ spec:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        resources: {{- toYaml .Values.deployment.envoyGateway.resources | nindent 10
-          }}
+        resources: {{- toYaml .Values.deployment.envoyGateway.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
         volumeMounts:

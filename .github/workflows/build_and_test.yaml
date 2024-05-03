@@ -18,10 +18,13 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
+    - uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814  # v4.2.0
+      with:
+        version: v3.5.0
     # Generate the install manifests first so it can checked
     # for errors while running `make -k lint`
     - run: make generate-manifests
@@ -29,21 +32,24 @@ jobs:
     - run: make -k lint
 
   gen-check:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, x64]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
+    - uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814  # v4.2.0
+      with:
+        version: v3.5.0
     - run: make -k gen-check
 
   license-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
     - run: make -k licensecheck
 
   coverage-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
@@ -60,7 +66,7 @@ jobs:
         verbose: true
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [lint, gen-check, license-check, coverage-test]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
@@ -76,7 +82,7 @@ jobs:
         path: bin/
 # Enable once https://github.com/tetrateio/gateway/issues/15 is completed
   conformance-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [build]
     strategy:
       matrix:
@@ -84,7 +90,9 @@ jobs:
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
-
+    - uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814  # v4.2.0
+      with:
+        version: v3.5.0
     - name: Download EG Binaries
       uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d  # v4.1.5
       with:
@@ -104,7 +112,7 @@ jobs:
     #      run: make conformance
 
   e2e-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [build]
     strategy:
       matrix:
@@ -112,7 +120,9 @@ jobs:
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
     - uses: ./tools/github-actions/setup-deps
-
+    - uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814  # v4.2.0
+      with:
+        version: v3.5.0
     - name: Download EG Binaries
       uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d  # v4.1.5
       with:
@@ -132,7 +142,7 @@ jobs:
     #      run: make e2e
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [conformance-test, e2e-test]
     steps:
     - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f  # v4.1.3
