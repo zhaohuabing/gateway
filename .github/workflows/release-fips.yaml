@@ -3,16 +3,16 @@ name: "FIPS Release"
 on:
   push:
     branches:
-    - "main"
-    - "release/v*"
+      - "main"
+      - "release/v*"
     paths-ignore:
-    - "**/*.png"
+      - "**/*.png"
   pull_request:
     branches:
-    - "main"
-    - "release/v*"
+      - "main"
+      - "release/v*"
     paths-ignore:
-    - "**/*.png"
+      - "**/*.png"
 
 permissions:
   contents: read
@@ -178,3 +178,4 @@ jobs:
         if: github.event_name == 'push'
         # tag is set to the short SHA of the commit
         run: make image.push.multiarch TAG=${{ env.release_tag }} PLATFORMS=${{ env.PLATFORMS }} IMAGE_PLATFORMS=${{ env.IMAGE_PLATFORMS }} IMAGE=fips-containers.teg.tetratelabs.com/gateway
+
