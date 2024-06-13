@@ -37,4 +37,3 @@ spec:
 ---
 # EnvoyExtensionPolicy for OCI Wasm source test is created in the test code because the OCI registry is created in the test code,
 # and the EnvoyExtensionPolicy needs to reference the OCI registry's address.
-`

@@ -15,12 +15,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -46,10 +51,10 @@ var OCIWasmTest = suite.ConformanceTest{
 	Description: "Test Wasm extension that adds response headers",
 	Manifests:   []string{"testdata/wasm-oci.yaml", "testdata/wasm-oci-registry-test-server.yaml"},
 	Test: func(t *testing.T, suite *suite.ConformanceTestSuite) {
-		t.Run("http route with oci wasm source", func(t *testing.T) {
-			// Set up the registry and create the wasm image for the test
-			setUpRegistry(t, suite)
+		// Set up the registry and create the wasm image for the test
+		setUpRegistry(t, suite)
 
+		t.Run("http route with oci wasm source", func(t *testing.T) {
 			ns := "gateway-conformance-infra"
 			routeNN := types.NamespacedName{Name: "http-with-oci-wasm-source", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
@@ -96,9 +101,6 @@ var OCIWasmTest = suite.ConformanceTest{
 		})
 
 		t.Run("http route without wasm", func(t *testing.T) {
-			// Set up the registry and create the wasm image for the test
-			setUpRegistry(t, suite)
-
 			ns := "gateway-conformance-infra"
 			routeNN := types.NamespacedName{Name: "http-without-wasm", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
@@ -137,15 +139,14 @@ var OCIWasmTest = suite.ConformanceTest{
 	},
 }
 
-const wasmOCIImageDigest = "cdb37a856ae7dae208cdcb19378022cc81dbcae30859f58b89ae259a9575a49d"
-
 func setUpRegistry(t *testing.T, suite *suite.ConformanceTestSuite) {
 	ns := "gateway-conformance-infra"
 	routeNN := types.NamespacedName{Name: "oci-registry", Namespace: ns}
 	gwNN := types.NamespacedName{Name: "oci-registry", Namespace: ns}
 	gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
 
-	if err := pushWasmImageForTest(gwAddr); err != nil {
+	digest, err := pushWasmImageForTest(gwAddr)
+	if err != nil {
 		t.Fatalf("failed to push wasm image: %v", err)
 	}
 
@@ -171,7 +172,7 @@ func setUpRegistry(t *testing.T, suite *suite.ConformanceTestSuite) {
 						Image: &egv1a1.ImageWasmCodeSource{
 							URL: fmt.Sprintf("%s/testwasm:v1.0.0", gwAddr),
 						},
-						SHA256: ptr.To(wasmOCIImageDigest),
+						SHA256: &digest,
 					},
 				},
 			},
@@ -181,26 +182,26 @@ func setUpRegistry(t *testing.T, suite *suite.ConformanceTestSuite) {
 	}
 }
 
-func pushWasmImageForTest(gwAddr string) error {
+func pushWasmImageForTest(gwAddr string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
 
 	var (
-		cli *client.Client
-		tar io.Reader
-		res dockertypes.ImageBuildResponse
-		rd  io.ReadCloser
-		err error
+		cli    *client.Client
+		tar    io.Reader
+		res    dockertypes.ImageBuildResponse
+		digest v1.Hash
+		err    error
 	)
 
 	tag := fmt.Sprintf("%s/testwasm:v1.0.0", gwAddr)
 
 	if cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation()); err != nil {
-		return err
+		return "", err
 	}
 
-	if tar, err = archive.TarWithOptions("../testdata/wasm/", &archive.TarOptions{}); err != nil {
-		return err
+	if tar, err = archive.TarWithOptions("testdata/wasm", &archive.TarOptions{}); err != nil {
+		return "", err
 	}
 
 	opts := dockertypes.ImageBuildOptions{
@@ -209,29 +210,39 @@ func pushWasmImageForTest(gwAddr string) error {
 		Remove:     true,
 	}
 	if res, err = cli.ImageBuild(ctx, tar, opts); err != nil {
-		return err
+		return "", err
+	}
+	_ = res.Body.Close()
+
+	ref, err := name.ParseReference(tag)
+	if err != nil {
+		return "", err
 	}
 
-	defer func() { _ = res.Body.Close() }()
-
-	if err = printDockerCLIResponse(res.Body); err != nil {
-		return err
+	// Retrieve the image from the local Docker daemon
+	img, err := daemon.Image(ref)
+	if err != nil {
+		return "", nil
 	}
 
-	if rd, err = cli.ImagePush(ctx, tag, image.PushOptions{
-		RegistryAuth: "none",
-	}); err != nil {
-		return err
+	const retries = 5
+	for i := 0; i < retries; i++ {
+		// Push the image to the remote registry
+		err = crane.Push(img, tag)
+		if err == nil {
+			break
+		}
 	}
-
-	defer func() {
-		_ = rd.Close()
-	}()
-
-	if err = printDockerCLIResponse(rd); err != nil {
-		return err
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if img, err = remote.Image(ref); err != nil {
+		return "", err
+	}
+	if digest, err = img.Digest(); err != nil {
+		return "", err
+	}
+	return digest.Hex, nil
 }
 
 type ErrorLine struct {
@@ -243,24 +254,33 @@ type ErrorDetail struct {
 	Message string `json:"message"`
 }
 
-func printDockerCLIResponse(rd io.Reader) error {
-	var lastLine string
+func imageDigest(rd io.Reader) (string, error) {
+	var (
+		digest   string
+		lastLine string
+	)
 
 	scanner := bufio.NewScanner(rd)
 	for scanner.Scan() {
 		lastLine = scanner.Text()
-		fmt.Println(scanner.Text())
+		const digestPrefix = "\"Digest\":\"sha256"
+		if strings.Contains(lastLine, digestPrefix) {
+			start := strings.Index(lastLine, digestPrefix) + len(digestPrefix) + 1
+			digest = lastLine[start : start+64]
+		}
+		fmt.Println(lastLine)
 	}
 
 	errLine := &ErrorLine{}
 	_ = json.Unmarshal([]byte(lastLine), errLine)
 	if errLine.Error != "" {
-		return errors.New(errLine.Error)
+		return "", errors.New(errLine.Error)
 	}
 
 	if err := scanner.Err(); err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return digest, nil
 }
+
