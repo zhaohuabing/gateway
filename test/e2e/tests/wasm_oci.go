@@ -10,6 +10,7 @@ package tests
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"testing"
@@ -23,11 +24,13 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	gwv1b1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/gateway-api/conformance/utils/http"
 	"sigs.k8s.io/gateway-api/conformance/utils/kubernetes"
 	"sigs.k8s.io/gateway-api/conformance/utils/suite"
@@ -46,8 +49,8 @@ var OCIWasmTest = suite.ConformanceTest{
 	Description: "Test Wasm extension that adds response headers",
 	Manifests:   []string{"testdata/wasm-oci.yaml", "testdata/wasm-oci-registry-test-server.yaml"},
 	Test: func(t *testing.T, suite *suite.ConformanceTestSuite) {
-		// Set up the registry and create the wasm image for the test
-		setUpRegistry(t, suite)
+		// Create the wasm image and envoy extension policy for the test
+		setupWasmOCITest(t, suite)
 
 		t.Run("http route with oci wasm source", func(t *testing.T) {
 			ns := "gateway-conformance-infra"
@@ -134,18 +137,61 @@ var OCIWasmTest = suite.ConformanceTest{
 	},
 }
 
-func setUpRegistry(t *testing.T, suite *suite.ConformanceTestSuite) {
+// setupWasmOCITest creates the wasm image and envoy extension policy for the test.
+func setupWasmOCITest(t *testing.T, suite *suite.ConformanceTestSuite) {
 	ns := "gateway-conformance-infra"
 	routeNN := types.NamespacedName{Name: "oci-registry", Namespace: ns}
 	gwNN := types.NamespacedName{Name: "oci-registry", Namespace: ns}
 	gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
 
-	digest, err := pushWasmImageForTest(gwAddr)
+	digest, err := pushImageForWasmTest(gwAddr)
 	if err != nil {
 		t.Fatalf("failed to push wasm image: %v", err)
 	}
 
-	if err := suite.Client.Create(context.Background(), &egv1a1.EnvoyExtensionPolicy{
+	pullSecret := "registry-secret"
+	if err = createPullSecretForWasmTest(suite, ns, gwAddr, pullSecret); err != nil {
+		t.Fatalf("failed to create pull secret: %v", err)
+	}
+	if err = createEEPForWasmTest(suite, ns, gwAddr, pullSecret, digest); err != nil {
+		t.Fatalf("failed to create EnvoyExtensionPoliy: %v", err)
+	}
+}
+
+func createPullSecretForWasmTest(suite *suite.ConformanceTestSuite, ns, gwAddr, name string) error {
+	// Define Docker credentials
+	const (
+		dockerUsername = "testuser"
+		dockerPassword = "testpasswd"
+		dockerEmail    = "your-email@example.com"
+	)
+
+	// Create Docker config JSON
+	dockerConfigJSON := fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s","email":"%s","auth":"%s"}}}`,
+		gwAddr, dockerUsername, dockerPassword, dockerEmail,
+		base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", dockerUsername, dockerPassword))))
+
+	// Create a Secret object
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			corev1.DockerConfigJsonKey: []byte(dockerConfigJSON),
+		},
+	}
+
+	// Create the secret in the specified namespace
+	if err := suite.Client.Create(context.Background(), secret); err != nil {
+		return err
+	}
+	return nil
+}
+
+func createEEPForWasmTest(suite *suite.ConformanceTestSuite, ns string, gwAddr string, pullSecret string, digest string) error {
+	eep := &egv1a1.EnvoyExtensionPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "oci-wasm-source-test",
 			Namespace: ns,
@@ -166,18 +212,23 @@ func setUpRegistry(t *testing.T, suite *suite.ConformanceTestSuite) {
 						Type: egv1a1.ImageWasmCodeSourceType,
 						Image: &egv1a1.ImageWasmCodeSource{
 							URL: fmt.Sprintf("%s/testwasm:v1.0.0", gwAddr),
+							PullSecretRef: &gwv1b1.SecretObjectReference{
+								Name: gwv1.ObjectName(pullSecret),
+							},
 						},
 						SHA256: &digest,
 					},
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("failed to create envoy extension policy: %v", err)
 	}
+	if err := suite.Client.Create(context.Background(), eep); err != nil {
+		return err
+	}
+	return nil
 }
 
-func pushWasmImageForTest(gwAddr string) (string, error) {
+func pushImageForWasmTest(gwAddr string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
 	defer cancel()
 

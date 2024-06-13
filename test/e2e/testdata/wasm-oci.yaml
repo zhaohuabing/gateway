@@ -35,5 +35,5 @@ spec:
     - name: infra-backend-v1
       port: 8080
 ---
-# EnvoyExtensionPolicy for OCI Wasm source test is created in the test code because the OCI registry is created in the test code,
-# and the EnvoyExtensionPolicy needs to reference the OCI registry's address.
+# EnvoyExtensionPolicy for OCI Wasm source test is created in the test code because we don't know the IP address of the
+# test OCI registry and the digest of the OCI image in advance.
