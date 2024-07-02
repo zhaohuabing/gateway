@@ -16,14 +16,30 @@ metadata:
   name: proxy-config
   namespace: envoy-gateway-system
 spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        container:
+          volumeMounts:
+            - mountPath: /var/run/ext-proc
+              name: socket-dir
+        pod:
+          volumes:
+            - name: socket-dir
+              hostPath:
+                path: /var/run/ext-proc
+                type: ''
   telemetry:
     metrics:
       prometheus: {}
       sinks:
         - type: OpenTelemetry
           openTelemetry:
-            host: otel-collector.monitoring.svc.cluster.local
-            port: 4317
+            backendRefs:
+              - name: otel-collector
+                namespace: monitoring
+                port: 4317
     accessLog:
       settings:
         - format:
@@ -36,14 +52,18 @@ spec:
                 path: /dev/stdout
             - type: OpenTelemetry
               openTelemetry:
-                host: otel-collector.monitoring.svc.cluster.local
-                port: 4317
+                backendRefs:
+                  - name: otel-collector
+                    namespace: monitoring
+                    port: 4317
                 resources:
                   k8s.cluster.name: "envoy-gateway"
     tracing:
       provider:
-        host: otel-collector.monitoring.svc.cluster.local
-        port: 4317
+        backendRefs:
+          - name: otel-collector
+            namespace: monitoring
+            port: 4317
       customTags:
         "k8s.cluster.name":
           type: Literal
@@ -86,4 +106,48 @@ spec:
     kubernetes:
       envoyDeployment:
         replicas: 2
-
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: envoy
+                      readinessProbe:
+                        initialDelaySeconds: 5
+---
+kind: GatewayClass
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: merge-gateways
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: merge-gateways-config
+    namespace: envoy-gateway-system
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: merge-gateways-config
+  namespace: envoy-gateway-system
+spec:
+  mergeGateways: true
+---
+kind: GatewayClass
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: internet
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+kind: GatewayClass
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: private
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---

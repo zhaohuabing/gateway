@@ -15,8 +15,9 @@ import (
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
-	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"k8s.io/utils/ptr"
 
 	"github.com/envoyproxy/gateway/internal/ir"
@@ -31,8 +32,7 @@ func init() {
 	registerHTTPFilter(&oidc{})
 }
 
-type oidc struct {
-}
+type oidc struct{}
 
 var _ httpFilter = &oidc{}
 
@@ -59,11 +59,11 @@ func (*oidc) patchHCM(mgr *hcmv3.HttpConnectionManager, irListener *ir.HTTPListe
 		// Only generates one BasicAuth Envoy filter for each unique name.
 		// For example, if there are two routes under the same gateway with the
 		// same BasicAuth config, only one BasicAuth filter will be generated.
-		if hcmContainsFilter(mgr, oauth2FilterName(route.OIDC)) {
+		if hcmContainsFilter(mgr, oauth2FilterName(route.Security.OIDC)) {
 			continue
 		}
 
-		filter, err := buildHCMOAuth2Filter(route.OIDC)
+		filter, err := buildHCMOAuth2Filter(route.Security.OIDC)
 		if err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -115,6 +115,15 @@ func oauth2Config(oidc *ir.OIDC) (*oauth2v3.OAuth2, error) {
 			oidc.Provider.TokenEndpoint)
 	}
 
+	// Envoy OAuth2 filter deletes the HTTP authorization header by default, which surprises users.
+	preserveAuthorizationHeader := true
+
+	// If the user wants to forward the oauth2 access token to the upstream service,
+	// we should not preserve the original authorization header.
+	if oidc.ForwardAccessToken {
+		preserveAuthorizationHeader = false
+	}
+
 	oauth2 := &oauth2v3.OAuth2{
 		Config: &oauth2v3.OAuth2Config{
 			TokenEndpoint: &corev3.HttpUri{
@@ -122,7 +131,7 @@ func oauth2Config(oidc *ir.OIDC) (*oauth2v3.OAuth2, error) {
 				HttpUpstreamType: &corev3.HttpUri_Cluster{
 					Cluster: cluster.name,
 				},
-				Timeout: &duration.Duration{
+				Timeout: &durationpb.Duration{
 					Seconds: defaultExtServiceRequestTimeout,
 				},
 			},
@@ -146,7 +155,8 @@ func oauth2Config(oidc *ir.OIDC) (*oauth2v3.OAuth2, error) {
 					},
 				},
 			},
-			ForwardBearerToken: true,
+			UseRefreshToken:    &wrappers.BoolValue{Value: oidc.RefreshToken},
+			ForwardBearerToken: oidc.ForwardAccessToken,
 			Credentials: &oauth2v3.OAuth2Credentials{
 				ClientId: oidc.ClientID,
 				TokenSecret: &tlsv3.SdsSecretConfig{
@@ -160,7 +170,7 @@ func oauth2Config(oidc *ir.OIDC) (*oauth2v3.OAuth2, error) {
 					},
 				},
 				CookieNames: &oauth2v3.OAuth2Credentials_CookieNames{
-					BearerToken:  fmt.Sprintf("BearerToken-%s", oidc.CookieSuffix),
+					BearerToken:  fmt.Sprintf("AccessToken-%s", oidc.CookieSuffix),
 					OauthHmac:    fmt.Sprintf("OauthHMAC-%s", oidc.CookieSuffix),
 					OauthExpires: fmt.Sprintf("OauthExpires-%s", oidc.CookieSuffix),
 					IdToken:      fmt.Sprintf("IdToken-%s", oidc.CookieSuffix),
@@ -171,21 +181,49 @@ func oauth2Config(oidc *ir.OIDC) (*oauth2v3.OAuth2, error) {
 			AuthType:   oauth2v3.OAuth2Config_BASIC_AUTH,
 			AuthScopes: oidc.Scopes,
 			Resources:  oidc.Resources,
+
+			PreserveAuthorizationHeader: preserveAuthorizationHeader,
 		},
 	}
+
+	if oidc.DefaultTokenTTL != nil {
+		oauth2.Config.DefaultExpiresIn = &durationpb.Duration{
+			Seconds: int64(oidc.DefaultTokenTTL.Seconds()),
+		}
+	}
+
+	if oidc.DefaultRefreshTokenTTL != nil {
+		oauth2.Config.DefaultRefreshTokenExpiresIn = &durationpb.Duration{
+			Seconds: int64(oidc.DefaultRefreshTokenTTL.Seconds()),
+		}
+	}
+
+	if oidc.CookieNameOverrides != nil &&
+		oidc.CookieNameOverrides.AccessToken != nil {
+		oauth2.Config.Credentials.CookieNames.BearerToken = *oidc.CookieNameOverrides.AccessToken
+	}
+
+	if oidc.CookieNameOverrides != nil &&
+		oidc.CookieNameOverrides.IDToken != nil {
+		oauth2.Config.Credentials.CookieNames.IdToken = *oidc.CookieNameOverrides.IDToken
+	}
+
 	return oauth2, nil
 }
 
 // routeContainsOIDC returns true if OIDC exists for the provided route.
 func routeContainsOIDC(irRoute *ir.HTTPRoute) bool {
-	if irRoute != nil && irRoute.OIDC != nil {
+	if irRoute != nil &&
+		irRoute.Security != nil &&
+		irRoute.Security.OIDC != nil {
 		return true
 	}
 	return false
 }
 
 func (*oidc) patchResources(tCtx *types.ResourceVersionTable,
-	routes []*ir.HTTPRoute) error {
+	routes []*ir.HTTPRoute,
+) error {
 	if err := createOAuth2TokenEndpointClusters(tCtx, routes); err != nil {
 		return err
 	}
@@ -198,7 +236,8 @@ func (*oidc) patchResources(tCtx *types.ResourceVersionTable,
 // createOAuth2TokenEndpointClusters creates token endpoint clusters from the
 // provided routes, if needed.
 func createOAuth2TokenEndpointClusters(tCtx *types.ResourceVersionTable,
-	routes []*ir.HTTPRoute) error {
+	routes []*ir.HTTPRoute,
+) error {
 	if tCtx == nil || tCtx.XdsResources == nil {
 		return errors.New("xds resource table is nil")
 	}
@@ -216,7 +255,7 @@ func createOAuth2TokenEndpointClusters(tCtx *types.ResourceVersionTable,
 			err     error
 		)
 
-		cluster, err = url2Cluster(route.OIDC.Provider.TokenEndpoint)
+		cluster, err = url2Cluster(route.Security.OIDC.Provider.TokenEndpoint)
 		if err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -228,15 +267,16 @@ func createOAuth2TokenEndpointClusters(tCtx *types.ResourceVersionTable,
 		if cluster.endpointType == EndpointTypeStatic {
 			errs = errors.Join(errs, fmt.Errorf(
 				"static IP cluster is not allowed: %s",
-				route.OIDC.Provider.TokenEndpoint))
+				route.Security.OIDC.Provider.TokenEndpoint))
 			continue
 		}
 
 		ds = &ir.DestinationSetting{
 			Weight: ptr.To[uint32](1),
-			Endpoints: []*ir.DestinationEndpoint{ir.NewDestEndpoint(
-				cluster.hostname,
-				cluster.port),
+			Endpoints: []*ir.DestinationEndpoint{
+				ir.NewDestEndpoint(
+					cluster.hostname,
+					cluster.port),
 			},
 		}
 
@@ -275,12 +315,12 @@ func createOAuth2Secrets(tCtx *types.ResourceVersionTable, routes []*ir.HTTPRout
 
 		// a separate secret is created for each route, even they share the same
 		// oauth2 client ID and secret.
-		clientSecret := buildOAuth2ClientSecret(route.OIDC)
+		clientSecret := buildOAuth2ClientSecret(route.Security.OIDC)
 		if err := addXdsSecret(tCtx, clientSecret); err != nil {
 			errs = errors.Join(errs, err)
 		}
 
-		if err := addXdsSecret(tCtx, buildOAuth2HMACSecret(route.OIDC)); err != nil {
+		if err := addXdsSecret(tCtx, buildOAuth2HMACSecret(route.Security.OIDC)); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
@@ -339,10 +379,10 @@ func (*oidc) patchRoute(route *routev3.Route, irRoute *ir.HTTPRoute) error {
 	if irRoute == nil {
 		return errors.New("ir route is nil")
 	}
-	if irRoute.OIDC == nil {
+	if irRoute.Security == nil || irRoute.Security.OIDC == nil {
 		return nil
 	}
-	filterName := oauth2FilterName(irRoute.OIDC)
+	filterName := oauth2FilterName(irRoute.Security.OIDC)
 	if err := enableFilterOnRoute(route, filterName); err != nil {
 		return err
 	}

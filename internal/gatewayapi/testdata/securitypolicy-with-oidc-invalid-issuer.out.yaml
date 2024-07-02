@@ -47,7 +47,7 @@ infraIR:
         name: default/gateway-1/http
         ports:
         - containerPort: 10080
-          name: http
+          name: http-80
           protocol: HTTP
           servicePort: 80
       metadata:
@@ -85,8 +85,8 @@ securityPolicies:
         namespace: default
       conditions:
       - lastTransitionTime: null
-        message: 'Error fetching endpoints from issuer: invalid character ''<'' looking
-          for beginning of value'
+        message: 'OIDC: error fetching endpoints from issuer: invalid character ''<''
+          looking for beginning of value.'
         reason: Invalid
         status: "False"
         type: Accepted
