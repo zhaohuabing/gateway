@@ -183,6 +183,7 @@ func (r *Runner) tlsConfig(cert, key, ca string) *tls.Config {
 			ClientAuth:   tls.RequireAndVerifyClientCert,
 			ClientCAs:    certPool,
 			MinVersion:   tls.VersionTLS13,
+			CipherSuites: []uint16{tls.TLS_AES_256_GCM_SHA384},
 		}, nil
 	}
 

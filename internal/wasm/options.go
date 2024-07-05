@@ -20,6 +20,7 @@
 package wasm
 
 import (
+	_ "crypto/tls/fipsonly"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
