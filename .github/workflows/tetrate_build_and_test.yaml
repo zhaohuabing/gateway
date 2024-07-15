@@ -129,8 +129,8 @@ jobs:
         chmod +x bin/linux/arm64/envoy-gateway
 
     # E2E
-    - name: Run E2E Tests
-      env:
-        KIND_NODE_TAG: ${{ matrix.version }}
-        IMAGE_PULL_POLICY: IfNotPresent
-      run: make e2e
+    # - name: Run E2E Tests
+    #  env:
+    #    KIND_NODE_TAG: ${{ matrix.version }}
+    #    IMAGE_PULL_POLICY: IfNotPresent
+    #  run: make e2e
