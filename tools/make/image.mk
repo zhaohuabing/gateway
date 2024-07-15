@@ -38,7 +38,7 @@ image.verify:
 image.build: $(addprefix image.build., $(IMAGES))
 
 .PHONY: image.build.%
-image.build.%: image.verify go.build.linux_$(GOARCH).%
+image.build.%: image.verify
 	@$(LOG_TARGET)
 	$(eval COMMAND := $(word 1,$(subst ., ,$*)))
 	$(eval IMAGES := $(COMMAND))

@@ -1,0 +1,136 @@
+name: Tetrate Build and Test
+on:
+  push:
+    branches:
+    - "main"
+    - "tetrate-release/v*"
+    paths-ignore:
+    - "**/*.png"
+  pull_request:
+    branches:
+    - "main"
+    - "tetrate-release/v*"
+    paths-ignore:
+    - "**/*.png"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+    # Generate the installation manifests first, so it can check
+    # for errors while running `make -k lint`
+    - run: IMAGE_PULL_POLICY=Always make generate-manifests
+    - run: make lint-deps
+    - run: make -k lint
+
+  gen-check:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+    - run: make -k gen-check
+
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+    - run: make -k licensecheck
+
+  coverage-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   #  for actions/checkout
+      id-token: write  #  for fetching OIDC token
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+
+    # test
+    - name: Run Coverage Tests
+      run: make go.test.coverage
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673  # v4.5.0
+      with:
+        fail_ci_if_error: true
+        files: ./coverage.xml
+        name: codecov-envoy-gateway
+        verbose: true
+        use_oidc: true
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, gen-check, license-check, coverage-test]
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+
+    - name: Build EG Multiarch Binaries
+      run: make build-multiarch PLATFORMS="linux_amd64 linux_arm64"
+
+    - name: Upload EG Binaries
+      uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b  # v4.3.4
+      with:
+        name: envoy-gateway
+        path: bin/
+
+  conformance-test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        version: [ v1.27.13, v1.28.9, v1.29.4, v1.30.0 ]
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+
+    - name: Download EG Binaries
+      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      with:
+        name: envoy-gateway
+        path: bin/
+
+    - name: Give Privileges To EG Binaries
+      run: |
+        chmod +x bin/linux/amd64/envoy-gateway
+        chmod +x bin/linux/arm64/envoy-gateway
+
+    # conformance
+    - name: Run Standard Conformance Tests
+      env:
+        KIND_NODE_TAG: ${{ matrix.version }}
+        IMAGE_PULL_POLICY: IfNotPresent
+      run: make conformance
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        version: [ v1.27.13, v1.28.9, v1.29.4, v1.30.0 ]
+    steps:
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+    - uses: ./tools/github-actions/setup-deps
+
+    - name: Download EG Binaries
+      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      with:
+        name: envoy-gateway
+        path: bin/
+
+    - name: Give Privileges To EG Binaries
+      run: |
+        chmod +x bin/linux/amd64/envoy-gateway
+        chmod +x bin/linux/arm64/envoy-gateway
+
+    # E2E
+    - name: Run E2E Tests
+      env:
+        KIND_NODE_TAG: ${{ matrix.version }}
+        IMAGE_PULL_POLICY: IfNotPresent
+      run: make e2e
