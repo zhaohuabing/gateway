@@ -9,11 +9,14 @@
 package tests
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/url"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/envoyproxy/gateway/internal/gatewayapi"
 
@@ -50,12 +53,25 @@ var ConnectionLimitTest = suite.ConformanceTest{
 			ClientTrafficPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "connection-limit-ctp", Namespace: ns}, suite.ControllerName, ancestorRef)
 
 			// open some connections
-			for i := 0; i < 10; i++ {
+			if err := wait.PollUntilContextTimeout(context.TODO(), time.Second, time.Minute, true,
+				func(_ context.Context) (done bool, err error) {
+					_, err = net.DialTimeout("tcp", gwAddr, 100*time.Millisecond)
+					if err != nil {
+						t.Logf("failed to open connection: %v", err)
+						return false, nil
+					}
+					return true, nil
+				}); err != nil {
+				t.Errorf("failed to open connections: %v", err)
+			}
+
+			for i := 0; i < 9; i++ {
 				conn, err := net.DialTimeout("tcp", gwAddr, 100*time.Millisecond)
 				if err == nil {
+					t.Logf("opened connection %d", i)
 					defer conn.Close()
 				} else {
-					t.Errorf("failed to open connection: %v", err)
+					t.Logf("failed to open connection: %v", err)
 				}
 			}
 

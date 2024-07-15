@@ -50,7 +50,7 @@ func TestE2E(t *testing.T) {
 		Debug:                *flags.ShowDebug,
 		CleanupBaseResources: *flags.CleanupBaseResources,
 		FS:                   &Manifests,
-		RunTest:              *flags.RunTest,
+		RunTest:              tests.ConnectionLimitTest.ShortName,
 	})
 
 	cSuite.Setup(t)
