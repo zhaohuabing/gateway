@@ -652,6 +652,16 @@ func (s *SecurityFeatures) Validate() error {
 	return errs
 }
 
+func (s *SecurityFeatures) Empty() bool {
+	return s == nil ||
+		(s.Authorization != nil &&
+			s.BasicAuth != nil &&
+			s.CORS != nil &&
+			s.ExtAuth != nil &&
+			s.OIDC != nil &&
+			s.JWT != nil)
+}
+
 // UnstructuredRef holds unstructured data for an arbitrary k8s resource introduced by an extension
 // Envoy Gateway does not need to know about the resource types in order to store and pass the data for these objects
 // to an extension.
