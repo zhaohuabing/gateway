@@ -6,11 +6,11 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 
 require (
 	fortio.org/fortio v1.66.0
-	fortio.org/log v1.15.0
+	fortio.org/log v1.16.0
 	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/cncf/xds/go v0.0.0-20240423153145-555b57ec207b
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/docker/cli v27.0.3+incompatible
+	github.com/docker/cli v27.1.1+incompatible
 	github.com/dominikbraun/graph v0.23.0
 	github.com/envoyproxy/go-control-plane v0.12.1-0.20240612043845-c54ec4ce422d
 	github.com/envoyproxy/ratelimit v1.4.1-0.20230427142404-e2a87f41d3a7
@@ -21,7 +21,7 @@ require (
 	github.com/go-logr/zapr v1.3.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
-	github.com/google/cel-go v0.20.1
+	github.com/google/cel-go v0.21.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/go-containerregistry v0.20.1
 	github.com/grafana/tempo v1.5.0
@@ -44,7 +44,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.3.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
-	golang.org/x/sys v0.22.0
+	golang.org/x/sys v0.23.0
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -63,8 +63,8 @@ require (
 )
 
 require (
-	github.com/docker/docker v27.0.3+incompatible
-	github.com/replicatedhq/troubleshoot v0.95.1
+	github.com/docker/docker v27.1.1+incompatible
+	github.com/replicatedhq/troubleshoot v0.98.0
 )
 
 require (
@@ -95,6 +95,7 @@ require (
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/c9s/goprocinfo v0.0.0-20170724085704-0010a05ce49f // indirect
+	github.com/cilium/ebpf v0.11.0 // indirect
 	github.com/containerd/cgroups/v3 v3.0.3 // indirect
 	github.com/containerd/containerd v1.7.17 // indirect
 	github.com/containerd/errdefs v0.1.0 // indirect
@@ -104,8 +105,9 @@ require (
 	github.com/containers/libtrust v0.0.0-20230121012942-c1716e8a8d01 // indirect
 	github.com/containers/ocicrypt v1.1.10 // indirect
 	github.com/containers/storage v1.54.0 // indirect
+	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.5 // indirect
-	github.com/distribution/distribution/v3 v3.0.0-alpha.1 // indirect
+	github.com/distribution/distribution/v3 v3.0.0-beta.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.8.2 // indirect
@@ -209,7 +211,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	k8s.io/apiserver v0.30.3 // indirect
-	k8s.io/kubelet v0.30.2 // indirect
+	k8s.io/kubelet v0.30.3 // indirect
 	k8s.io/metrics v0.30.3 // indirect
 	oras.land/oras-go v1.2.5 // indirect
 	periph.io/x/host/v3 v3.8.2 // indirect
@@ -272,7 +274,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.28.0 // indirect
 	go.starlark.net v0.0.0-20240520160348-046347dcd104 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/mod v0.18.0 // indirect
+	golang.org/x/mod v0.19.0 // indirect
 	golang.org/x/net v0.27.0
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect

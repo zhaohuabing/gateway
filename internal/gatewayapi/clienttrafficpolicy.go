@@ -28,11 +28,7 @@ import (
 
 const (
 	// Use an invalid string to represent all sections (listeners) within a Gateway
-	AllSections                         = "/"
-	MinHTTP2InitialStreamWindowSize     = 65535      // https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-field-config-core-v3-http2protocoloptions-initial-stream-window-size
-	MaxHTTP2InitialStreamWindowSize     = 2147483647 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-field-config-core-v3-http2protocoloptions-initial-stream-window-size
-	MinHTTP2InitialConnectionWindowSize = MinHTTP2InitialStreamWindowSize
-	MaxHTTP2InitialConnectionWindowSize = MaxHTTP2InitialStreamWindowSize
+	AllSections = "/"
 )
 
 func hasSectionName(target *gwapiv1a2.LocalPolicyTargetReferenceWithSectionName) bool {
@@ -292,29 +288,16 @@ func resolveCTPolicyTargetRef(
 	targetRef *gwapiv1a2.LocalPolicyTargetReferenceWithSectionName,
 	gateways map[types.NamespacedName]*policyGatewayTargetContext,
 ) (*GatewayContext, *status.PolicyResolveError) {
-	targetNs := policy.Namespace
-
 	// Check if the gateway exists
 	key := types.NamespacedName{
 		Name:      string(targetRef.Name),
-		Namespace: targetNs,
+		Namespace: policy.Namespace,
 	}
 	gateway, ok := gateways[key]
 
 	// Gateway not found
 	if !ok {
 		return nil, nil
-	}
-
-	// Ensure Policy and target Gateway are in the same namespace
-	if policy.Namespace != targetNs {
-		message := fmt.Sprintf("Namespace:%s TargetRef.Namespace:%s, ClientTrafficPolicy can only target a Gateway in the same namespace.",
-			policy.Namespace, targetNs)
-
-		return gateway.GatewayContext, &status.PolicyResolveError{
-			Reason:  gwapiv1a2.PolicyReasonInvalid,
-			Message: message,
-		}
 	}
 
 	// If sectionName is set, make sure its valid
@@ -434,7 +417,7 @@ func (t *Translator) translateClientTrafficPolicyForListener(policy *egv1a1.Clie
 	}
 
 	// Translate Proxy Protocol
-	enableProxyProtocol = buildProxyProtocol(policy.Spec.EnableProxyProtocol)
+	enableProxyProtocol = ptr.Deref(policy.Spec.EnableProxyProtocol, false)
 
 	// Translate Client Timeout Settings
 	timeout, err = buildClientTimeout(policy.Spec.Timeout)
@@ -619,14 +602,6 @@ func buildClientTimeout(clientTimeout *egv1a1.ClientTimeout) (*ir.ClientTimeout,
 	}
 
 	return irClientTimeout, nil
-}
-
-func buildProxyProtocol(enableProxyProtocol *bool) bool {
-	if enableProxyProtocol != nil && *enableProxyProtocol {
-		return true
-	}
-
-	return false
 }
 
 func translateClientIPDetection(clientIPDetection *egv1a1.ClientIPDetectionSettings, httpIR *ir.HTTPListener) {
