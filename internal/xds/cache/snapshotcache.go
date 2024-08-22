@@ -346,7 +346,11 @@ func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.De
 
 func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, req *discoveryv3.DeltaDiscoveryRequest, rsp *discoveryv3.DeltaDiscoveryResponse) {
 	fmt.Println("XXXXXXOnStreamDeltaResponse: version", rsp.SystemVersionInfo, "node:", req.Node.Id)
-	// No mutex lock required here because no writing to the cache.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if rsp.SystemVersionInfo == strconv.FormatInt(s.snapshotVersion, 10) {
+		fmt.Println("XXXX Got a response with the same version as the current snapshot, config on ", req.Node.Id+" is up to date")
+	}
 	node := s.streamIDNodeInfo[streamID]
 	if node == nil {
 		s.log.Errorf("Tried to send a response to a node we haven't seen yet on stream %d", streamID)
