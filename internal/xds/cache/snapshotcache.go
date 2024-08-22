@@ -74,6 +74,8 @@ func (s *snapshotCache) GenerateNewSnapshot(irKey string, resources types.XdsRes
 
 	version := s.newSnapshotVersion()
 
+	fmt.Println("current xds version: ", version)
+
 	// Create a snapshot with all xDS resources.
 	snapshot, err := cachev3.NewSnapshot(
 		version,
@@ -174,6 +176,7 @@ func (s *snapshotCache) OnStreamClosed(streamID int64, node *corev3.Node) {
 }
 
 func (s *snapshotCache) OnStreamRequest(streamID int64, req *discoveryv3.DiscoveryRequest) error {
+	fmt.Println("OnStreamRequest:", req.VersionInfo)
 	s.mu.Lock()
 	// We could do this a little earlier than the defer, since the last half of this func is only logging
 	// but that seemed like a premature optimization.
@@ -234,7 +237,8 @@ func (s *snapshotCache) OnStreamRequest(streamID int64, req *discoveryv3.Discove
 	return nil
 }
 
-func (s *snapshotCache) OnStreamResponse(_ context.Context, streamID int64, _ *discoveryv3.DiscoveryRequest, _ *discoveryv3.DiscoveryResponse) {
+func (s *snapshotCache) OnStreamResponse(_ context.Context, streamID int64, _ *discoveryv3.DiscoveryRequest, rsp *discoveryv3.DiscoveryResponse) {
+	fmt.Println("OnStreamResponse", rsp.VersionInfo)
 	// No mutex lock required here because no writing to the cache.
 	node := s.streamIDNodeInfo[streamID]
 	if node == nil {
@@ -277,6 +281,7 @@ func (s *snapshotCache) OnDeltaStreamClosed(streamID int64, node *corev3.Node) {
 }
 
 func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.DeltaDiscoveryRequest) error {
+	fmt.Println("OnStreamDeltaRequest")
 	s.mu.Lock()
 	// We could do this a little earlier than with a defer, since the last half of this func is logging
 	// but that seemed like a premature optimization.
@@ -340,6 +345,7 @@ func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.De
 }
 
 func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, _ *discoveryv3.DeltaDiscoveryRequest, _ *discoveryv3.DeltaDiscoveryResponse) {
+	fmt.Println("OnStreamDeltaResponse")
 	// No mutex lock required here because no writing to the cache.
 	node := s.streamIDNodeInfo[streamID]
 	if node == nil {
