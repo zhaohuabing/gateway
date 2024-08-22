@@ -74,7 +74,7 @@ func (s *snapshotCache) GenerateNewSnapshot(irKey string, resources types.XdsRes
 
 	version := s.newSnapshotVersion()
 
-	fmt.Println("current xds version: ", version)
+	fmt.Println("XXXXXXcurrent xds version: ", version)
 
 	// Create a snapshot with all xDS resources.
 	snapshot, err := cachev3.NewSnapshot(
@@ -281,7 +281,7 @@ func (s *snapshotCache) OnDeltaStreamClosed(streamID int64, node *corev3.Node) {
 }
 
 func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.DeltaDiscoveryRequest) error {
-	fmt.Println("XXXXXXOnStreamDeltaRequest")
+	fmt.Println("XXXXXXOnStreamDeltaRequest:", req.InitialResourceVersions)
 	s.mu.Lock()
 	// We could do this a little earlier than with a defer, since the last half of this func is logging
 	// but that seemed like a premature optimization.
@@ -344,8 +344,8 @@ func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.De
 	return nil
 }
 
-func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, _ *discoveryv3.DeltaDiscoveryRequest, _ *discoveryv3.DeltaDiscoveryResponse) {
-	fmt.Println("XXXXXXOnStreamDeltaResponse")
+func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, _ *discoveryv3.DeltaDiscoveryRequest, rsp *discoveryv3.DeltaDiscoveryResponse) {
+	fmt.Println("XXXXXXOnStreamDeltaResponse", rsp.SystemVersionInfo)
 	// No mutex lock required here because no writing to the cache.
 	node := s.streamIDNodeInfo[streamID]
 	if node == nil {
