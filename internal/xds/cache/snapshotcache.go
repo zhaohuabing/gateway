@@ -344,8 +344,8 @@ func (s *snapshotCache) OnStreamDeltaRequest(streamID int64, req *discoveryv3.De
 	return nil
 }
 
-func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, _ *discoveryv3.DeltaDiscoveryRequest, rsp *discoveryv3.DeltaDiscoveryResponse) {
-	fmt.Println("XXXXXXOnStreamDeltaResponse", rsp.SystemVersionInfo)
+func (s *snapshotCache) OnStreamDeltaResponse(streamID int64, req *discoveryv3.DeltaDiscoveryRequest, rsp *discoveryv3.DeltaDiscoveryResponse) {
+	fmt.Println("XXXXXXOnStreamDeltaResponse: version", rsp.SystemVersionInfo, "node:", req.Node.Id)
 	// No mutex lock required here because no writing to the cache.
 	node := s.streamIDNodeInfo[streamID]
 	if node == nil {
