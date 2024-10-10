@@ -4,7 +4,6 @@
 // the root of the repo.
 
 //go:build e2e
-// +build e2e
 
 package tests
 
@@ -41,6 +40,7 @@ import (
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/gatewayapi"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 )
 
 const (
@@ -85,7 +85,7 @@ var OCIWasmTest = suite.ConformanceTest{
 		// Wait for the EnvoyExtensionPolicy to be accepted
 		ancestorRef := gwapiv1a2.ParentReference{
 			Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-			Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+			Kind:      gatewayapi.KindPtr(resource.KindGateway),
 			Namespace: gatewayapi.NamespacePtr(testNS),
 			Name:      gwapiv1.ObjectName(testGW),
 		}
@@ -188,7 +188,7 @@ var OCIWasmTest = suite.ConformanceTest{
 			// Wait for the EnvoyExtensionPolicy to be failed due to missing pull secret
 			ancestorRef := gwapiv1a2.ParentReference{
 				Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-				Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+				Kind:      gatewayapi.KindPtr(resource.KindGateway),
 				Namespace: gatewayapi.NamespacePtr(testNS),
 				Name:      gwapiv1.ObjectName(testGW),
 			}
@@ -223,7 +223,7 @@ var OCIWasmTest = suite.ConformanceTest{
 			// Wait for the EnvoyExtensionPolicy to be failed due to missing pull secret
 			ancestorRef := gwapiv1a2.ParentReference{
 				Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-				Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+				Kind:      gatewayapi.KindPtr(resource.KindGateway),
 				Namespace: gatewayapi.NamespacePtr(testNS),
 				Name:      gwapiv1.ObjectName(testGW),
 			}
