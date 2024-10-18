@@ -1,5 +1,5 @@
 ---
-# Source: gateway-helm/templates/envoy-gateway-deployment.yaml
+# Source: gateway-helm/templates/envoy-gateway-serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -107,6 +107,7 @@ rules:
   - apps
   resources:
   - deployments
+  - daemonsets
   verbs:
   - get
   - list
@@ -129,6 +130,7 @@ rules:
   - securitypolicies
   - envoyextensionpolicies
   - backends
+  - httproutefilters
   verbs:
   - get
   - list
@@ -204,10 +206,12 @@ rules:
   resources:
   - serviceaccounts
   - services
+  - configmaps
   verbs:
   - create
   - get
   - delete
+  - deletecollection
   - patch
 - apiGroups:
   - apps
@@ -218,6 +222,7 @@ rules:
   - create
   - get
   - delete
+  - deletecollection
   - patch
 - apiGroups:
   - autoscaling
@@ -229,6 +234,7 @@ rules:
   - create
   - get
   - delete
+  - deletecollection
   - patch
 ---
 # Source: gateway-helm/templates/leader-election-rbac.yaml
@@ -430,6 +436,8 @@ spec:
             - ALL
           privileged: false
           runAsNonRoot: true
+          runAsGroup: 65532
+          runAsUser: 65532
           seccompProfile:
             type: RuntimeDefault
         volumeMounts:

@@ -178,6 +178,7 @@ envoyProxyForGatewayClass:
     logging: {}
   status: {}
 gatewayClass:
+  kind: GatewayClass
   metadata:
     creationTimestamp: null
     name: eg
@@ -197,7 +198,8 @@ gatewayClass:
       status: "True"
       type: Accepted
 gateways:
-- metadata:
+- kind: Gateway
+  metadata:
     creationTimestamp: null
     name: eg
     namespace: default
@@ -923,7 +925,6 @@ xds:
                   statPrefix: http-10080
                   useRemoteAddress: true
               name: default/eg/http
-            drainType: MODIFY_ONLY
             name: default/eg/http
             perConnectionBufferLimitBytes: 32768
       - activeState:
@@ -991,7 +992,6 @@ xds:
                   statPrefix: http-8080
                   useRemoteAddress: true
               name: default/eg/grpc
-            drainType: MODIFY_ONLY
             name: default/eg/grpc
             perConnectionBufferLimitBytes: 32768
       - activeState:
@@ -1014,7 +1014,6 @@ xds:
               socketAddress:
                 address: 0.0.0.0
                 portValue: 1234
-            drainType: MODIFY_ONLY
             filterChains:
             - filters:
               - name: envoy.filters.network.tcp_proxy
@@ -1054,7 +1053,6 @@ xds:
               socketAddress:
                 address: 0.0.0.0
                 portValue: 8443
-            drainType: MODIFY_ONLY
             filterChains:
             - filterChainMatch:
                 serverNames:
@@ -1137,7 +1135,7 @@ xds:
               filterMetadata:
                 envoy-gateway:
                   resources:
-                  - kind: ""
+                  - kind: Gateway
                     name: eg
                     namespace: default
                     sectionName: http
@@ -1168,7 +1166,7 @@ xds:
               filterMetadata:
                 envoy-gateway:
                   resources:
-                  - kind: ""
+                  - kind: Gateway
                     name: eg
                     namespace: default
                     sectionName: grpc

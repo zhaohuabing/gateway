@@ -16,10 +16,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 	"github.com/envoyproxy/gateway/internal/gatewayapi/status"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils"
@@ -33,7 +33,7 @@ const (
 func (t *Translator) ProcessBackendTrafficPolicies(backendTrafficPolicies []*egv1a1.BackendTrafficPolicy,
 	gateways []*GatewayContext,
 	routes []RouteContext,
-	xdsIR XdsIRMap,
+	xdsIR resource.XdsIRMap,
 ) []*egv1a1.BackendTrafficPolicy {
 	res := []*egv1a1.BackendTrafficPolicy{}
 
@@ -73,7 +73,7 @@ func (t *Translator) ProcessBackendTrafficPolicies(backendTrafficPolicies []*egv
 		policyName := utils.NamespacedName(currPolicy)
 		targetRefs := getPolicyTargetRefs(currPolicy.Spec.PolicyTargetReferences, routes)
 		for _, currTarget := range targetRefs {
-			if currTarget.Kind != KindGateway {
+			if currTarget.Kind != resource.KindGateway {
 				policy, found := handledPolicies[policyName]
 				if !found {
 					policy = currPolicy.DeepCopy()
@@ -93,7 +93,7 @@ func (t *Translator) ProcessBackendTrafficPolicies(backendTrafficPolicies []*egv
 				parentRefs := GetParentReferences(route)
 				ancestorRefs := make([]gwapiv1a2.ParentReference, 0, len(parentRefs))
 				for _, p := range parentRefs {
-					if p.Kind == nil || *p.Kind == KindGateway {
+					if p.Kind == nil || *p.Kind == resource.KindGateway {
 						namespace := route.GetNamespace()
 						if p.Namespace != nil {
 							namespace = string(*p.Namespace)
@@ -147,7 +147,7 @@ func (t *Translator) ProcessBackendTrafficPolicies(backendTrafficPolicies []*egv
 		policyName := utils.NamespacedName(currPolicy)
 		targetRefs := getPolicyTargetRefs(currPolicy.Spec.PolicyTargetReferences, gateways)
 		for _, currTarget := range targetRefs {
-			if currTarget.Kind == KindGateway {
+			if currTarget.Kind == resource.KindGateway {
 				policy, found := handledPolicies[policyName]
 				if !found {
 					policy = currPolicy.DeepCopy()
@@ -281,7 +281,7 @@ func resolveBTPolicyRouteTargetRef(policy *egv1a1.BackendTrafficPolicy, target g
 	return route.RouteContext, nil
 }
 
-func (t *Translator) translateBackendTrafficPolicyForRoute(policy *egv1a1.BackendTrafficPolicy, route RouteContext, xdsIR XdsIRMap) error {
+func (t *Translator) translateBackendTrafficPolicyForRoute(policy *egv1a1.BackendTrafficPolicy, route RouteContext, xdsIR resource.XdsIRMap) error {
 	var (
 		rl        *ir.RateLimit
 		lb        *ir.LoadBalancer
@@ -323,7 +323,7 @@ func (t *Translator) translateBackendTrafficPolicyForRoute(policy *egv1a1.Backen
 		errs = errors.Join(errs, err)
 	}
 	if policy.Spec.Retry != nil {
-		rt = t.buildRetry(policy)
+		rt = buildRetry(policy.Spec.Retry)
 	}
 	if to, err = buildClusterSettingsTimeout(policy.Spec.ClusterSettings, nil); err != nil {
 		err = perr.WithMessage(err, "Timeout")
@@ -418,7 +418,7 @@ func (t *Translator) translateBackendTrafficPolicyForRoute(policy *egv1a1.Backen
 	return errs
 }
 
-func (t *Translator) translateBackendTrafficPolicyForGateway(policy *egv1a1.BackendTrafficPolicy, target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName, gateway *GatewayContext, xdsIR XdsIRMap) error {
+func (t *Translator) translateBackendTrafficPolicyForGateway(policy *egv1a1.BackendTrafficPolicy, target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName, gateway *GatewayContext, xdsIR resource.XdsIRMap) error {
 	var (
 		rl        *ir.RateLimit
 		lb        *ir.LoadBalancer
@@ -459,7 +459,7 @@ func (t *Translator) translateBackendTrafficPolicyForGateway(policy *egv1a1.Back
 		errs = errors.Join(errs, err)
 	}
 	if policy.Spec.Retry != nil {
-		rt = t.buildRetry(policy)
+		rt = buildRetry(policy.Spec.Retry)
 	}
 	if ct, err = buildClusterSettingsTimeout(policy.Spec.ClusterSettings, nil); err != nil {
 		err = perr.WithMessage(err, "Timeout")
@@ -709,8 +709,9 @@ func buildRateLimitRule(rule egv1a1.RateLimitRule) (*ir.RateLimitRule, error) {
 				fallthrough
 			case *header.Type == egv1a1.HeaderMatchExact && header.Value != nil:
 				m := &ir.StringMatch{
-					Name:  header.Name,
-					Exact: header.Value,
+					Name:   header.Name,
+					Exact:  header.Value,
+					Invert: header.Invert,
 				}
 				irRule.HeaderMatches = append(irRule.HeaderMatches, m)
 			case *header.Type == egv1a1.HeaderMatchRegularExpression && header.Value != nil:
@@ -720,9 +721,14 @@ func buildRateLimitRule(rule egv1a1.RateLimitRule) (*ir.RateLimitRule, error) {
 				m := &ir.StringMatch{
 					Name:      header.Name,
 					SafeRegex: header.Value,
+					Invert:    header.Invert,
 				}
 				irRule.HeaderMatches = append(irRule.HeaderMatches, m)
 			case *header.Type == egv1a1.HeaderMatchDistinct && header.Value == nil:
+				if header.Invert != nil && *header.Invert {
+					return nil, fmt.Errorf("unable to translate rateLimit." +
+						"Invert is not applicable for distinct header match type")
+				}
 				m := &ir.StringMatch{
 					Name:     header.Name,
 					Distinct: true,
@@ -773,7 +779,7 @@ func ratelimitUnitToDuration(unit egv1a1.RateLimitUnit) int64 {
 
 func int64ToUint32(in int64) (uint32, bool) {
 	if in >= 0 && in <= math.MaxUint32 {
-		return uint32(in), true // nolint: gosec
+		return uint32(in), true
 	}
 	return 0, false
 }
@@ -803,67 +809,6 @@ func (t *Translator) buildFaultInjection(policy *egv1a1.BackendTrafficPolicy) *i
 		}
 	}
 	return fi
-}
-
-func (t *Translator) buildRetry(policy *egv1a1.BackendTrafficPolicy) *ir.Retry {
-	var rt *ir.Retry
-	if policy.Spec.Retry != nil {
-		prt := policy.Spec.Retry
-		rt = &ir.Retry{}
-
-		if prt.NumRetries != nil {
-			rt.NumRetries = ptr.To(uint32(*prt.NumRetries))
-		}
-
-		if prt.RetryOn != nil {
-			ro := &ir.RetryOn{}
-			bro := false
-			if prt.RetryOn.HTTPStatusCodes != nil {
-				ro.HTTPStatusCodes = makeIrStatusSet(prt.RetryOn.HTTPStatusCodes)
-				bro = true
-			}
-
-			if prt.RetryOn.Triggers != nil {
-				ro.Triggers = makeIrTriggerSet(prt.RetryOn.Triggers)
-				bro = true
-			}
-
-			if bro {
-				rt.RetryOn = ro
-			}
-		}
-
-		if prt.PerRetry != nil {
-			pr := &ir.PerRetryPolicy{}
-			bpr := false
-
-			if prt.PerRetry.Timeout != nil {
-				pr.Timeout = prt.PerRetry.Timeout
-				bpr = true
-			}
-
-			if prt.PerRetry.BackOff != nil {
-				if prt.PerRetry.BackOff.MaxInterval != nil || prt.PerRetry.BackOff.BaseInterval != nil {
-					bop := &ir.BackOffPolicy{}
-					if prt.PerRetry.BackOff.MaxInterval != nil {
-						bop.MaxInterval = prt.PerRetry.BackOff.MaxInterval
-					}
-
-					if prt.PerRetry.BackOff.BaseInterval != nil {
-						bop.BaseInterval = prt.PerRetry.BackOff.BaseInterval
-					}
-					pr.BackOff = bop
-					bpr = true
-				}
-			}
-
-			if bpr {
-				rt.PerRetry = pr
-			}
-		}
-	}
-
-	return rt
 }
 
 func makeIrStatusSet(in []egv1a1.HTTPStatus) []ir.HTTPStatus {

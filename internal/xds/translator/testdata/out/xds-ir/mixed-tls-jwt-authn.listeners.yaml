@@ -2,7 +2,6 @@
     socketAddress:
       address: 0.0.0.0
       portValue: 10080
-  drainType: MODIFY_ONLY
   filterChains:
   - filters:
     - name: envoy.filters.network.http_connection_manager
@@ -44,5 +43,7 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   name: first-listener
   perConnectionBufferLimitBytes: 32768

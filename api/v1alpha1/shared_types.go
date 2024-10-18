@@ -47,16 +47,15 @@ type GroupVersionKind struct {
 
 // ProviderType defines the types of providers supported by Envoy Gateway.
 //
-// +kubebuilder:validation:Enum=Kubernetes
+// +kubebuilder:validation:Enum=Kubernetes;Custom
 type ProviderType string
 
 const (
 	// ProviderTypeKubernetes defines the "Kubernetes" provider.
 	ProviderTypeKubernetes ProviderType = "Kubernetes"
 
-	// ProviderTypeFile defines the "File" provider. This type is not implemented
-	// until https://github.com/envoyproxy/gateway/issues/1001 is fixed.
-	ProviderTypeFile ProviderType = "File"
+	// ProviderTypeCustom defines the "Custom" provider.
+	ProviderTypeCustom ProviderType = "Custom"
 )
 
 // KubernetesDeploymentSpec defines the desired state of the Kubernetes deployment resource.
@@ -99,7 +98,7 @@ type KubernetesDeploymentSpec struct {
 	// TODO: Expose config as use cases are better understood, e.g. labels.
 }
 
-// KubernetesDaemonsetSpec defines the desired state of the Kubernetes daemonset resource.
+// KubernetesDaemonSetSpec defines the desired state of the Kubernetes daemonset resource.
 type KubernetesDaemonSetSpec struct {
 	// Patch defines how to perform the patch operation to daemonset
 	//
@@ -262,6 +261,12 @@ type KubernetesServiceSpec struct {
 	//
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Labels that should be appended to the service.
+	// By default, no labels are appended.
+	//
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 
 	// Type determines how the Service is exposed. Defaults to LoadBalancer.
 	// Valid options are ClusterIP, LoadBalancer and NodePort.
@@ -511,6 +516,61 @@ type BackendCluster struct {
 	BackendSettings *ClusterSettings `json:"backendSettings,omitempty"`
 }
 
+// ClusterSettings provides the various knobs that can be set to control how traffic to a given
+// backend will be configured.
+type ClusterSettings struct {
+	// LoadBalancer policy to apply when routing traffic from the gateway to
+	// the backend endpoints. Defaults to `LeastRequest`.
+	// +optional
+	LoadBalancer *LoadBalancer `json:"loadBalancer,omitempty"`
+
+	// Retry provides more advanced usage, allowing users to customize the number of retries, retry fallback strategy, and retry triggering conditions.
+	// If not set, retry will be disabled.
+	// +optional
+	Retry *Retry `json:"retry,omitempty"`
+
+	// ProxyProtocol enables the Proxy Protocol when communicating with the backend.
+	// +optional
+	ProxyProtocol *ProxyProtocol `json:"proxyProtocol,omitempty"`
+
+	// TcpKeepalive settings associated with the upstream client connection.
+	// Disabled by default.
+	//
+	// +optional
+	TCPKeepalive *TCPKeepalive `json:"tcpKeepalive,omitempty"`
+
+	// HealthCheck allows gateway to perform active health checking on backends.
+	//
+	// +optional
+	HealthCheck *HealthCheck `json:"healthCheck,omitempty"`
+
+	// Circuit Breaker settings for the upstream connections and requests.
+	// If not set, circuit breakers will be enabled with the default thresholds
+	//
+	// +optional
+	CircuitBreaker *CircuitBreaker `json:"circuitBreaker,omitempty"`
+
+	// Timeout settings for the backend connections.
+	//
+	// +optional
+	Timeout *Timeout `json:"timeout,omitempty"`
+
+	// Connection includes backend connection settings.
+	//
+	// +optional
+	Connection *BackendConnection `json:"connection,omitempty"`
+
+	// DNS includes dns resolution settings.
+	//
+	// +optional
+	DNS *DNS `json:"dns,omitempty"`
+
+	// HTTP2 provides HTTP/2 configuration for backend connections.
+	//
+	// +optional
+	HTTP2 *HTTP2Settings `json:"http2,omitempty"`
+}
+
 // CIDR defines a CIDR Address range.
 // A CIDR can be an IPv4 address range such as "192.168.1.0/24" or an IPv6 address range such as "2001:0db8:11a3:09d7::/64".
 // +kubebuilder:validation:Pattern=`((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\/([0-9]+))|((([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\/([0-9]+))`
@@ -554,4 +614,85 @@ type HTTP2Settings struct {
 	// Default: TerminateConnection
 	// +optional
 	OnInvalidMessage *InvalidMessageAction `json:"onInvalidMessage,omitempty"`
+}
+
+// ResponseOverride defines the configuration to override specific responses with a custom one.
+type ResponseOverride struct {
+	// Match configuration.
+	Match CustomResponseMatch `json:"match"`
+	// Response configuration.
+	Response CustomResponse `json:"response"`
+}
+
+// CustomResponseMatch defines the configuration for matching a user response to return a custom one.
+type CustomResponseMatch struct {
+	// Status code to match on. The match evaluates to true if any of the matches are successful.
+	StatusCode []StatusCodeMatch `json:"statusCode"`
+}
+
+// StatusCodeValueType defines the types of values for the status code match supported by Envoy Gateway.
+// +kubebuilder:validation:Enum=Value;Range
+type StatusCodeValueType string
+
+type StatusCodeMatch struct {
+	// Type is the type of value.
+	//
+	// +kubebuilder:default=Value
+	// +unionDiscriminator
+	Type *StatusCodeValueType `json:"type"`
+
+	// Value contains the value of the status code.
+	//
+	// +optional
+	Value *string `json:"value,omitempty"`
+	// ValueRef contains the contents of the body
+	// specified as a local object reference.
+	// Only a reference to ConfigMap is supported.
+	//
+	// +optional
+	Range *StatusCodeRange `json:"range,omitempty"`
+}
+
+// StatusCodeRange defines the configuration for define a range of status codes.
+type StatusCodeRange struct {
+	// Start of the range, including the start value.
+	Start int `json:"start"`
+	// End of the range, including the end value.
+	End int `json:"end"`
+}
+
+// CustomResponse defines the configuration for returning a custom response.
+type CustomResponse struct {
+	// Content Type of the response. This will be set in the Content-Type header.
+	//
+	// +optional
+	ContentType *string `json:"contentType,omitempty"`
+
+	// Body of the Custom Response
+	//
+	// +optional
+	Body *CustomResponseBody `json:"body,omitempty"`
+}
+
+// ResponseValueType defines the types of values for the response body supported by Envoy Gateway.
+// +kubebuilder:validation:Enum=Inline;ValueRef
+type ResponseValueType string
+
+// CustomResponseBody
+type CustomResponseBody struct {
+	// Type is the type of method to use to read the body value.
+	//
+	// +unionDiscriminator
+	Type *ResponseValueType `json:"type"`
+
+	// Inline contains the value as an inline string.
+	//
+	// +optional
+	Inline *string `json:"inline,omitempty"`
+	// ValueRef contains the contents of the body
+	// specified as a local object reference.
+	// Only a reference to ConfigMap is supported.
+	//
+	// +optional
+	ValueRef *gwapiv1.LocalObjectReference `json:"valueRef,omitempty"`
 }

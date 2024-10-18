@@ -30,7 +30,6 @@
         statPrefix: http-10080
         useRemoteAddress: true
     name: third-listener
-  drainType: MODIFY_ONLY
   filterChains:
   - filterChainMatch:
       serverNames:
@@ -75,6 +74,8 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   - filterChainMatch:
       serverNames:
       - foo.net
@@ -118,6 +119,8 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   - filterChainMatch:
       serverNames:
       - bar.com

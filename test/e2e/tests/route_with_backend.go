@@ -4,7 +4,6 @@
 // the root of the repo.
 
 //go:build e2e
-// +build e2e
 
 package tests
 
@@ -36,6 +35,7 @@ var EnvoyGatewayBackendTest = suite.ConformanceTest{
 			routeNN := types.NamespacedName{Name: "httproute-to-backend-fqdn", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
 			gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
+			BackendMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "backend-fqdn", Namespace: ns})
 
 			expectedResponse := http.ExpectedResponse{
 				Request: http.Request{
@@ -55,6 +55,7 @@ var EnvoyGatewayBackendTest = suite.ConformanceTest{
 			routeNN := types.NamespacedName{Name: "httproute-to-backend-ip", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
 			gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
+			BackendMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "backend-ip", Namespace: ns})
 
 			expectedResponse := http.ExpectedResponse{
 				Request: http.Request{
@@ -74,6 +75,7 @@ var EnvoyGatewayBackendTest = suite.ConformanceTest{
 			routeNN := types.NamespacedName{Name: "httproute-to-backend-fqdn-http2", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
 			gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
+			BackendMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "backend-fqdn-http2", Namespace: ns})
 
 			expectedResponse := http.ExpectedResponse{
 				Request: http.Request{
@@ -93,6 +95,7 @@ var EnvoyGatewayBackendTest = suite.ConformanceTest{
 			routeNN := types.NamespacedName{Name: "httproute-to-fqdn-backend-tls", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
 			gwAddr := kubernetes.GatewayAndHTTPRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), routeNN)
+			BackendMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "backend-fqdn-tls", Namespace: ns})
 
 			expectedResponse := http.ExpectedResponse{
 				Request: http.Request{

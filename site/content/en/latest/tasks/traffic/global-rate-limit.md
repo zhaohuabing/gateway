@@ -870,7 +870,7 @@ spec:
       - clientSelectors:
         - sourceCIDR: 
             value: 0.0.0.0/0
-            type: distinct
+            type: Distinct
         limit:
           requests: 3
           unit: Hour
@@ -1080,11 +1080,11 @@ spec:
 Get the JWT used for testing request authentication:
 
 ```shell
-TOKEN=$(curl https://raw.githubusercontent.com/envoyproxy/gateway/main/examples/kubernetes/jwt/test.jwt -s) && echo "$TOKEN" | cut -d '.' -f2 - | base64 --decode -
+TOKEN=$(curl https://raw.githubusercontent.com/envoyproxy/gateway/main/examples/kubernetes/jwt/test.jwt -s) && echo "$TOKEN" | cut -d '.' -f2 - | base64 --decode
 ```
 
 ```shell
-TOKEN1=$(curl https://raw.githubusercontent.com/envoyproxy/gateway/main/examples/kubernetes/jwt/with-different-claim.jwt -s) && echo "$TOKEN1" | cut -d '.' -f2 - | base64 --decode -
+TOKEN1=$(curl https://raw.githubusercontent.com/envoyproxy/gateway/main/examples/kubernetes/jwt/with-different-claim.jwt -s) && echo "$TOKEN1" | cut -d '.' -f2 - | base64 --decode
 ```
 
 ### Rate limit by carrying `TOKEN`

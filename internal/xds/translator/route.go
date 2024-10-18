@@ -386,14 +386,15 @@ func buildXdsURLRewriteAction(destName string, urlRewrite *ir.URLRewrite, pathMa
 	}
 
 	if urlRewrite.Path != nil {
-		if urlRewrite.Path.FullReplace != nil {
+		switch {
+		case urlRewrite.Path.FullReplace != nil:
 			routeAction.RegexRewrite = &matcherv3.RegexMatchAndSubstitute{
 				Pattern: &matcherv3.RegexMatcher{
 					Regex: "^/.*$",
 				},
 				Substitution: *urlRewrite.Path.FullReplace,
 			}
-		} else if urlRewrite.Path.PrefixMatchReplace != nil {
+		case urlRewrite.Path.PrefixMatchReplace != nil:
 			// Circumvent the case of "//" when the replace string is "/"
 			// An empty replace string does not seem to solve the issue so we are using
 			// a regex match and replace instead
@@ -405,6 +406,13 @@ func buildXdsURLRewriteAction(destName string, urlRewrite *ir.URLRewrite, pathMa
 				// when the pathMath.Prefix has suffix / but EG has removed it,
 				// and the urlRewrite.Path.PrefixMatchReplace suffix with / the upstream will get unwanted /
 				routeAction.PrefixRewrite = strings.TrimSuffix(*urlRewrite.Path.PrefixMatchReplace, "/")
+			}
+		case urlRewrite.Path.RegexMatchReplace != nil:
+			routeAction.RegexRewrite = &matcherv3.RegexMatchAndSubstitute{
+				Pattern: &matcherv3.RegexMatcher{
+					Regex: urlRewrite.Path.RegexMatchReplace.Pattern,
+				},
+				Substitution: urlRewrite.Path.RegexMatchReplace.Substitution,
 			}
 		}
 	}
@@ -598,7 +606,7 @@ func buildRetryPolicy(route *ir.HTTPRoute) (*routev3.RetryPolicy, error) {
 func buildRetryStatusCodes(codes []ir.HTTPStatus) []uint32 {
 	ret := make([]uint32, len(codes))
 	for i, c := range codes {
-		ret[i] = uint32(c) // nolint: gosec
+		ret[i] = uint32(c)
 	}
 	return ret
 }

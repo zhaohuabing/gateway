@@ -2,7 +2,6 @@
     socketAddress:
       address: 0.0.0.0
       portValue: 10080
-  drainType: MODIFY_ONLY
   filterChains:
   - filters:
     - name: envoy.filters.network.tcp_proxy
@@ -24,6 +23,8 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   - filterChainMatch:
       serverNames:
       - '*.envoyproxy.io'
@@ -48,6 +49,8 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   listenerFilters:
   - name: envoy.filters.listener.tls_inspector
     typedConfig:

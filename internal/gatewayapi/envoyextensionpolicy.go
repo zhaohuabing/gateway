@@ -23,6 +23,7 @@ import (
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 	"github.com/envoyproxy/gateway/internal/gatewayapi/status"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils"
@@ -35,8 +36,8 @@ const ociURLPrefix = "oci://"
 func (t *Translator) ProcessEnvoyExtensionPolicies(envoyExtensionPolicies []*egv1a1.EnvoyExtensionPolicy,
 	gateways []*GatewayContext,
 	routes []RouteContext,
-	resources *Resources,
-	xdsIR XdsIRMap,
+	resources *resource.Resources,
+	xdsIR resource.XdsIRMap,
 ) []*egv1a1.EnvoyExtensionPolicy {
 	var res []*egv1a1.EnvoyExtensionPolicy
 
@@ -76,7 +77,7 @@ func (t *Translator) ProcessEnvoyExtensionPolicies(envoyExtensionPolicies []*egv
 		policyName := utils.NamespacedName(currPolicy)
 		targetRefs := getPolicyTargetRefs(currPolicy.Spec.PolicyTargetReferences, routes)
 		for _, currTarget := range targetRefs {
-			if currTarget.Kind != KindGateway {
+			if currTarget.Kind != resource.KindGateway {
 				policy, found := handledPolicies[policyName]
 				if !found {
 					policy = currPolicy.DeepCopy()
@@ -96,7 +97,7 @@ func (t *Translator) ProcessEnvoyExtensionPolicies(envoyExtensionPolicies []*egv
 				parentRefs := GetParentReferences(route)
 				ancestorRefs := make([]gwapiv1a2.ParentReference, 0, len(parentRefs))
 				for _, p := range parentRefs {
-					if p.Kind == nil || *p.Kind == KindGateway {
+					if p.Kind == nil || *p.Kind == resource.KindGateway {
 						namespace := route.GetNamespace()
 						if p.Namespace != nil {
 							namespace = string(*p.Namespace)
@@ -150,7 +151,7 @@ func (t *Translator) ProcessEnvoyExtensionPolicies(envoyExtensionPolicies []*egv
 		policyName := utils.NamespacedName(currPolicy)
 		targetRefs := getPolicyTargetRefs(currPolicy.Spec.PolicyTargetReferences, gateways)
 		for _, currTarget := range targetRefs {
-			if currTarget.Kind == KindGateway {
+			if currTarget.Kind == resource.KindGateway {
 				policy, found := handledPolicies[policyName]
 				if !found {
 					policy = currPolicy.DeepCopy()
@@ -287,8 +288,8 @@ func resolveEEPolicyRouteTargetRef(policy *egv1a1.EnvoyExtensionPolicy, target g
 func (t *Translator) translateEnvoyExtensionPolicyForRoute(
 	policy *egv1a1.EnvoyExtensionPolicy,
 	route RouteContext,
-	xdsIR XdsIRMap,
-	resources *Resources,
+	xdsIR resource.XdsIRMap,
+	resources *resource.Resources,
 ) error {
 	var (
 		wasms     []ir.Wasm
@@ -345,8 +346,8 @@ func (t *Translator) translateEnvoyExtensionPolicyForGateway(
 	policy *egv1a1.EnvoyExtensionPolicy,
 	target gwapiv1a2.LocalPolicyTargetReferenceWithSectionName,
 	gateway *GatewayContext,
-	xdsIR XdsIRMap,
-	resources *Resources,
+	xdsIR resource.XdsIRMap,
+	resources *resource.Resources,
 ) error {
 	var (
 		extProcs  []ir.ExtProc
@@ -401,7 +402,7 @@ func (t *Translator) translateEnvoyExtensionPolicyForGateway(
 	return errs
 }
 
-func (t *Translator) buildExtProcs(policy *egv1a1.EnvoyExtensionPolicy, resources *Resources, envoyProxy *egv1a1.EnvoyProxy) ([]ir.ExtProc, error) {
+func (t *Translator) buildExtProcs(policy *egv1a1.EnvoyExtensionPolicy, resources *resource.Resources, envoyProxy *egv1a1.EnvoyProxy) ([]ir.ExtProc, error) {
 	var extProcIRList []ir.ExtProc
 
 	if policy == nil {
@@ -410,7 +411,7 @@ func (t *Translator) buildExtProcs(policy *egv1a1.EnvoyExtensionPolicy, resource
 
 	for idx, ep := range policy.Spec.ExtProc {
 		name := irConfigNameForExtProc(policy, idx)
-		extProcIR, err := t.buildExtProc(name, utils.NamespacedName(policy), ep, idx, resources, envoyProxy)
+		extProcIR, err := t.buildExtProc(name, policy, ep, idx, resources, envoyProxy)
 		if err != nil {
 			return nil, err
 		}
@@ -421,59 +422,33 @@ func (t *Translator) buildExtProcs(policy *egv1a1.EnvoyExtensionPolicy, resource
 
 func (t *Translator) buildExtProc(
 	name string,
-	policyNamespacedName types.NamespacedName,
+	policy *egv1a1.EnvoyExtensionPolicy,
 	extProc egv1a1.ExtProc,
 	extProcIdx int,
-	resources *Resources,
+	resources *resource.Resources,
 	envoyProxy *egv1a1.EnvoyProxy,
 ) (*ir.ExtProc, error) {
 	var (
-		ds        *ir.DestinationSetting
+		rd        *ir.RouteDestination
 		authority string
 		err       error
 	)
 
-	var dsl []*ir.DestinationSetting
-	for i := range extProc.BackendRefs {
-		if err = t.validateExtServiceBackendReference(
-			&extProc.BackendRefs[i].BackendObjectReference,
-			policyNamespacedName.Namespace,
-			egv1a1.KindEnvoyExtensionPolicy,
-			resources); err != nil {
-			return nil, err
-		}
-
-		ds, err = t.processExtServiceDestination(
-			&extProc.BackendRefs[i],
-			policyNamespacedName,
-			egv1a1.KindEnvoyExtensionPolicy,
-			ir.GRPC,
-			resources,
-			envoyProxy,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		dsl = append(dsl, ds)
-	}
-
-	rd := ir.RouteDestination{
-		Name:     irIndexedExtServiceDestinationName(policyNamespacedName, egv1a1.KindEnvoyExtensionPolicy, extProcIdx),
-		Settings: dsl,
+	if rd, err = t.translateExtServiceBackendRefs(policy, extProc.BackendRefs, ir.GRPC, resources, envoyProxy, extProcIdx); err != nil {
+		return nil, err
 	}
 
 	if extProc.BackendRefs[0].Port != nil {
 		authority = fmt.Sprintf(
 			"%s.%s:%d",
 			extProc.BackendRefs[0].Name,
-			NamespaceDerefOr(extProc.BackendRefs[0].Namespace, policyNamespacedName.Namespace),
+			NamespaceDerefOr(extProc.BackendRefs[0].Namespace, policy.Namespace),
 			*extProc.BackendRefs[0].Port)
 	} else {
 		authority = fmt.Sprintf(
 			"%s.%s",
 			extProc.BackendRefs[0].Name,
-			NamespaceDerefOr(extProc.BackendRefs[0].Namespace, policyNamespacedName.Namespace))
+			NamespaceDerefOr(extProc.BackendRefs[0].Namespace, policy.Namespace))
 	}
 
 	traffic, err := translateTrafficFeatures(extProc.BackendCluster.BackendSettings)
@@ -483,7 +458,7 @@ func (t *Translator) buildExtProc(
 
 	extProcIR := &ir.ExtProc{
 		Name:        name,
-		Destination: rd,
+		Destination: *rd,
 		Traffic:     traffic,
 		Authority:   authority,
 	}
@@ -528,7 +503,7 @@ func irConfigNameForExtProc(policy *egv1a1.EnvoyExtensionPolicy, index int) stri
 
 func (t *Translator) buildWasms(
 	policy *egv1a1.EnvoyExtensionPolicy,
-	resources *Resources,
+	resources *resource.Resources,
 ) ([]ir.Wasm, error) {
 	if t.WasmCache == nil {
 		return nil, fmt.Errorf("wasm cache is not initialized")
@@ -556,7 +531,7 @@ func (t *Translator) buildWasm(
 	config egv1a1.Wasm,
 	policy *egv1a1.EnvoyExtensionPolicy,
 	idx int,
-	resources *Resources,
+	resources *resource.Resources,
 ) (*ir.Wasm, error) {
 	var (
 		failOpen   = false
@@ -630,7 +605,7 @@ func (t *Translator) buildWasm(
 		if image.PullSecretRef != nil {
 			from := crossNamespaceFrom{
 				group:     egv1a1.GroupName,
-				kind:      KindEnvoyExtensionPolicy,
+				kind:      resource.KindEnvoyExtensionPolicy,
 				namespace: policy.Namespace,
 			}
 

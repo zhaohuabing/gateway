@@ -17,6 +17,7 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 	"github.com/envoyproxy/gateway/internal/gatewayapi/status"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils"
@@ -26,10 +27,10 @@ import (
 var _ ListenersTranslator = (*Translator)(nil)
 
 type ListenersTranslator interface {
-	ProcessListeners(gateways []*GatewayContext, xdsIR XdsIRMap, infraIR InfraIRMap, resources *Resources)
+	ProcessListeners(gateways []*GatewayContext, xdsIR resource.XdsIRMap, infraIR resource.InfraIRMap, resources *resource.Resources)
 }
 
-func (t *Translator) ProcessListeners(gateways []*GatewayContext, xdsIR XdsIRMap, infraIR InfraIRMap, resources *Resources) {
+func (t *Translator) ProcessListeners(gateways []*GatewayContext, xdsIR resource.XdsIRMap, infraIR resource.InfraIRMap, resources *resource.Resources) {
 	// Infra IR proxy ports must be unique.
 	foundPorts := make(map[string][]*protocolPort)
 	t.validateConflictedLayer7Listeners(gateways)
@@ -57,22 +58,23 @@ func (t *Translator) ProcessListeners(gateways []*GatewayContext, xdsIR XdsIRMap
 				if listener.TLS != nil {
 					switch *listener.TLS.Mode {
 					case gwapiv1.TLSModePassthrough:
-						t.validateAllowedRoutes(listener, KindTLSRoute)
+						t.validateAllowedRoutes(listener, resource.KindTLSRoute)
 					case gwapiv1.TLSModeTerminate:
-						t.validateAllowedRoutes(listener, KindTCPRoute)
+						t.validateAllowedRoutes(listener, resource.KindTCPRoute)
 					default:
-						t.validateAllowedRoutes(listener, KindTCPRoute, KindTLSRoute)
+						t.validateAllowedRoutes(listener, resource.KindTCPRoute, resource.KindTLSRoute)
 					}
 				} else {
-					t.validateAllowedRoutes(listener, KindTCPRoute, KindTLSRoute)
+					t.validateAllowedRoutes(listener, resource.KindTCPRoute, resource.KindTLSRoute)
 				}
 			case gwapiv1.HTTPProtocolType, gwapiv1.HTTPSProtocolType:
-				t.validateAllowedRoutes(listener, KindHTTPRoute, KindGRPCRoute)
+				t.validateAllowedRoutes(listener, resource.KindHTTPRoute, resource.KindGRPCRoute)
 			case gwapiv1.TCPProtocolType:
-				t.validateAllowedRoutes(listener, KindTCPRoute)
+				t.validateAllowedRoutes(listener, resource.KindTCPRoute)
 			case gwapiv1.UDPProtocolType:
-				t.validateAllowedRoutes(listener, KindUDPRoute)
+				t.validateAllowedRoutes(listener, resource.KindUDPRoute)
 			default:
+				listener.SetSupportedKinds()
 				status.SetGatewayListenerStatusCondition(listener.gateway.Gateway,
 					listener.listenerStatusIdx,
 					gwapiv1.ListenerConditionAccepted,
@@ -170,7 +172,7 @@ func buildListenerMetadata(listener *ListenerContext, gateway *GatewayContext) *
 	}
 }
 
-func (t *Translator) processProxyObservability(gwCtx *GatewayContext, xdsIR *ir.Xds, envoyProxy *egv1a1.EnvoyProxy, resources *Resources) {
+func (t *Translator) processProxyObservability(gwCtx *GatewayContext, xdsIR *ir.Xds, envoyProxy *egv1a1.EnvoyProxy, resources *resource.Resources) {
 	var err error
 
 	xdsIR.AccessLog, err = t.processAccessLog(envoyProxy, resources)
@@ -195,7 +197,7 @@ func (t *Translator) processProxyObservability(gwCtx *GatewayContext, xdsIR *ir.
 	}
 }
 
-func (t *Translator) processInfraIRListener(listener *ListenerContext, infraIR InfraIRMap, irKey string, servicePort *protocolPort, containerPort int32) {
+func (t *Translator) processInfraIRListener(listener *ListenerContext, infraIR resource.InfraIRMap, irKey string, servicePort *protocolPort, containerPort int32) {
 	var proto ir.ProtocolType
 	switch listener.Protocol {
 	case gwapiv1.HTTPProtocolType:
@@ -225,7 +227,7 @@ func (t *Translator) processInfraIRListener(listener *ListenerContext, infraIR I
 	infraIR[irKey].Proxy.Listeners = append(infraIR[irKey].Proxy.Listeners, proxyListener)
 }
 
-func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *Resources) (*ir.AccessLog, error) {
+func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *resource.Resources) (*ir.AccessLog, error) {
 	if envoyproxy == nil ||
 		envoyproxy.Spec.Telemetry == nil ||
 		envoyproxy.Spec.Telemetry.AccessLog == nil ||
@@ -239,7 +241,6 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 			},
 		}, nil
 	}
-
 	if envoyproxy.Spec.Telemetry.AccessLog.Disable {
 		return nil, nil
 	}
@@ -247,6 +248,16 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 	irAccessLog := &ir.AccessLog{}
 	// translate the access log configuration to the IR
 	for i, accessLog := range envoyproxy.Spec.Telemetry.AccessLog.Settings {
+		var accessLogType *ir.ProxyAccessLogType
+		if accessLog.Type != nil {
+			switch *accessLog.Type {
+			case egv1a1.ProxyAccessLogTypeRoute:
+				accessLogType = ptr.To(ir.ProxyAccessLogTypeRoute)
+			case egv1a1.ProxyAccessLogTypeListener:
+				accessLogType = ptr.To(ir.ProxyAccessLogTypeListener)
+			}
+		}
+
 		var format egv1a1.ProxyAccessLogFormat
 		if accessLog.Format != nil {
 			format = *accessLog.Format
@@ -272,6 +283,16 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 			return nil, utilerrors.NewAggregate(errs)
 		}
 
+		if len(accessLog.Sinks) == 0 {
+			al := &ir.TextAccessLog{
+				Format:     format.Text,
+				CELMatches: validExprs,
+				LogType:    accessLogType,
+				Path:       "/dev/stdout",
+			}
+			irAccessLog.Text = append(irAccessLog.Text, al)
+		}
+
 		for j, sink := range accessLog.Sinks {
 			switch sink.Type {
 			case egv1a1.ProxyAccessLogSinkTypeFile:
@@ -285,6 +306,7 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 						Format:     format.Text,
 						Path:       sink.File.Path,
 						CELMatches: validExprs,
+						LogType:    accessLogType,
 					}
 					irAccessLog.Text = append(irAccessLog.Text, al)
 				case egv1a1.ProxyAccessLogFormatTypeJSON:
@@ -297,6 +319,7 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 						JSON:       format.JSON,
 						Path:       sink.File.Path,
 						CELMatches: validExprs,
+						LogType:    accessLogType,
 					}
 					irAccessLog.JSON = append(irAccessLog.JSON, al)
 				}
@@ -327,6 +350,7 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 					Traffic:    traffic,
 					Type:       sink.ALS.Type,
 					CELMatches: validExprs,
+					LogType:    accessLogType,
 				}
 
 				if al.Type == egv1a1.ALSEnvoyProxyAccessLogTypeHTTP && sink.ALS.HTTP != nil {
@@ -337,7 +361,6 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 					}
 					al.HTTP = http
 				}
-
 				switch format.Type {
 				case egv1a1.ProxyAccessLogFormatTypeJSON:
 					al.Attributes = format.JSON
@@ -365,6 +388,7 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 						Settings: ds,
 					},
 					Traffic: traffic,
+					LogType: accessLogType,
 				}
 
 				if len(ds) == 0 {
@@ -389,11 +413,10 @@ func (t *Translator) processAccessLog(envoyproxy *egv1a1.EnvoyProxy, resources *
 			}
 		}
 	}
-
 	return irAccessLog, nil
 }
 
-func (t *Translator) processTracing(gw *gwapiv1.Gateway, envoyproxy *egv1a1.EnvoyProxy, mergeGateways bool, resources *Resources) (*ir.Tracing, error) {
+func (t *Translator) processTracing(gw *gwapiv1.Gateway, envoyproxy *egv1a1.EnvoyProxy, mergeGateways bool, resources *resource.Resources) (*ir.Tracing, error) {
 	if envoyproxy == nil ||
 		envoyproxy.Spec.Telemetry == nil ||
 		envoyproxy.Spec.Telemetry.Tracing == nil {
@@ -445,7 +468,7 @@ func (t *Translator) processTracing(gw *gwapiv1.Gateway, envoyproxy *egv1a1.Envo
 	}, nil
 }
 
-func (t *Translator) processMetrics(envoyproxy *egv1a1.EnvoyProxy, resources *Resources) (*ir.Metrics, error) {
+func (t *Translator) processMetrics(envoyproxy *egv1a1.EnvoyProxy, resources *resource.Resources) (*ir.Metrics, error) {
 	if envoyproxy == nil ||
 		envoyproxy.Spec.Telemetry == nil ||
 		envoyproxy.Spec.Telemetry.Metrics == nil {
@@ -464,12 +487,13 @@ func (t *Translator) processMetrics(envoyproxy *egv1a1.EnvoyProxy, resources *Re
 	}
 
 	return &ir.Metrics{
-		EnableVirtualHostStats: envoyproxy.Spec.Telemetry.Metrics.EnableVirtualHostStats,
-		EnablePerEndpointStats: envoyproxy.Spec.Telemetry.Metrics.EnablePerEndpointStats,
+		EnableVirtualHostStats:          envoyproxy.Spec.Telemetry.Metrics.EnableVirtualHostStats != nil && *envoyproxy.Spec.Telemetry.Metrics.EnableVirtualHostStats,
+		EnablePerEndpointStats:          envoyproxy.Spec.Telemetry.Metrics.EnablePerEndpointStats != nil && *envoyproxy.Spec.Telemetry.Metrics.EnablePerEndpointStats,
+		EnableRequestResponseSizesStats: envoyproxy.Spec.Telemetry.Metrics.EnableRequestResponseSizesStats != nil && *envoyproxy.Spec.Telemetry.Metrics.EnableRequestResponseSizesStats,
 	}, nil
 }
 
-func (t *Translator) processBackendRefs(backendCluster egv1a1.BackendCluster, namespace string, resources *Resources, envoyProxy *egv1a1.EnvoyProxy) ([]*ir.DestinationSetting, *ir.TrafficFeatures, error) {
+func (t *Translator) processBackendRefs(backendCluster egv1a1.BackendCluster, namespace string, resources *resource.Resources, envoyProxy *egv1a1.EnvoyProxy) ([]*ir.DestinationSetting, *ir.TrafficFeatures, error) {
 	traffic, err := translateTrafficFeatures(backendCluster.BackendSettings)
 	if err != nil {
 		return nil, nil, err
@@ -477,8 +501,8 @@ func (t *Translator) processBackendRefs(backendCluster egv1a1.BackendCluster, na
 	result := make([]*ir.DestinationSetting, 0, len(backendCluster.BackendRefs))
 	for _, ref := range backendCluster.BackendRefs {
 		ns := NamespaceDerefOr(ref.Namespace, namespace)
-		kind := KindDerefOr(ref.Kind, KindService)
-		if kind != KindService {
+		kind := KindDerefOr(ref.Kind, resource.KindService)
+		if kind != resource.KindService {
 			return nil, nil, errors.New("only service kind is supported for backendRefs")
 		}
 		if err := validateBackendService(ref.BackendObjectReference, resources, ns, corev1.ProtocolTCP); err != nil {
