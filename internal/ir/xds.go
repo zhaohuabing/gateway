@@ -7,6 +7,7 @@ package ir
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,12 +47,15 @@ var (
 	ErrDestEndpointUDSPortInvalid              = errors.New("field Port must not be specified for Unix Domain Socket address")
 	ErrDestEndpointUDSHostInvalid              = errors.New("field Host must not be specified for Unix Domain Socket address")
 	ErrStringMatchConditionInvalid             = errors.New("only one of the Exact, Prefix, SafeRegex or Distinct fields must be set")
+	ErrStringMatchInvertDistinctInvalid        = errors.New("only one of the Invert or Distinct fields can be set")
 	ErrStringMatchNameIsEmpty                  = errors.New("field Name must be specified")
 	ErrDirectResponseStatusInvalid             = errors.New("only HTTP status codes 100 - 599 are supported for DirectResponse")
 	ErrRedirectUnsupportedStatus               = errors.New("only HTTP status codes 301 and 302 are supported for redirect filters")
 	ErrRedirectUnsupportedScheme               = errors.New("only http and https are supported for the scheme in redirect filters")
-	ErrHTTPPathModifierDoubleReplace           = errors.New("redirect filter cannot have a path modifier that supplies both fullPathReplace and prefixMatchReplace")
-	ErrHTTPPathModifierNoReplace               = errors.New("redirect filter cannot have a path modifier that does not supply either fullPathReplace or prefixMatchReplace")
+	ErrHTTPPathModifierDoubleReplace           = errors.New("redirect filter cannot have a path modifier that supplies more than one of fullPathReplace, prefixMatchReplace and regexMatchReplace")
+	ErrHTTPPathModifierNoReplace               = errors.New("redirect filter cannot have a path modifier that does not supply either fullPathReplace, prefixMatchReplace or regexMatchReplace")
+	ErrHTTPPathRegexModifierNoSetting          = errors.New("redirect filter cannot have a path modifier that does not supply either fullPathReplace, prefixMatchReplace or regexMatchReplace")
+	ErrHTTPHostModifierDoubleReplace           = errors.New("redirect filter cannot have a host modifier that supplies more than one of Hostname, Header and Backend")
 	ErrAddHeaderEmptyName                      = errors.New("header modifier filter cannot configure a header without a name to be added")
 	ErrAddHeaderDuplicate                      = errors.New("header modifier filter attempts to add the same header more than once (case insensitive)")
 	ErrRemoveHeaderDuplicate                   = errors.New("header modifier filter attempts to remove the same header more than once (case insensitive)")
@@ -124,7 +128,7 @@ func (x *Xds) sort() {
 }
 
 // Validate the fields within the Xds structure.
-func (x Xds) Validate() error {
+func (x *Xds) Validate() error {
 	var errs error
 	for _, http := range x.HTTP {
 		if err := http.Validate(); err != nil {
@@ -144,7 +148,7 @@ func (x Xds) Validate() error {
 	return errs
 }
 
-func (x Xds) GetHTTPListener(name string) *HTTPListener {
+func (x *Xds) GetHTTPListener(name string) *HTTPListener {
 	for _, listener := range x.HTTP {
 		if listener.Name == name {
 			return listener
@@ -153,7 +157,7 @@ func (x Xds) GetHTTPListener(name string) *HTTPListener {
 	return nil
 }
 
-func (x Xds) GetTCPListener(name string) *TCPListener {
+func (x *Xds) GetTCPListener(name string) *TCPListener {
 	for _, listener := range x.TCP {
 		if listener.Name == name {
 			return listener
@@ -162,7 +166,7 @@ func (x Xds) GetTCPListener(name string) *TCPListener {
 	return nil
 }
 
-func (x Xds) GetUDPListener(name string) *UDPListener {
+func (x *Xds) GetUDPListener(name string) *UDPListener {
 	for _, listener := range x.UDP {
 		if listener.Name == name {
 			return listener
@@ -171,13 +175,18 @@ func (x Xds) GetUDPListener(name string) *UDPListener {
 	return nil
 }
 
-func (x Xds) YAMLString() string {
+func (x *Xds) YAMLString() string {
 	y, _ := yaml.Marshal(x.Printable())
 	return string(y)
 }
 
+func (x *Xds) JSONString() string {
+	j, _ := json.MarshalIndent(x.Printable(), "", "\t")
+	return string(j)
+}
+
 // Printable returns a deep copy of the resource that can be safely logged.
-func (x Xds) Printable() *Xds {
+func (x *Xds) Printable() *Xds {
 	out := x.DeepCopy()
 	for _, listener := range out.HTTP {
 		// Omit field
@@ -216,7 +225,19 @@ type CoreListenerDetails struct {
 	ExtensionRefs []*UnstructuredRef `json:"extensionRefs,omitempty" yaml:"extensionRefs,omitempty"`
 	// Metadata is used to enrich envoy resource metadata with user and provider-specific information
 	Metadata *ResourceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	// IPFamily specifies the IP address family for the gateway.
+	// It can be IPv4, IPv6, or Dual.
+	IPFamily *IPFamily `json:"ipFamily,omitempty" yaml:"ipFamily,omitempty"`
 }
+
+// IPFamily specifies the IP address family used by the Gateway for its listening ports.
+type IPFamily string
+
+const (
+	IPv4      IPFamily = "IPv4"
+	IPv6      IPFamily = "IPv6"
+	Dualstack IPFamily = "DualStack"
+)
 
 func (l CoreListenerDetails) GetName() string {
 	return l.Name
@@ -342,7 +363,11 @@ type TLSConfig struct {
 	// SignatureAlgorithms supported by this listener
 	SignatureAlgorithms []string `json:"signatureAlgorithms,omitempty" yaml:"signatureAlgorithms,omitempty"`
 	// ALPNProtocols exposed by this listener
-	ALPNProtocols []string `json:"alpnProtocols,omitempty" yaml:"alpnProtocols,omitempty"`
+	ALPNProtocols []string `json:"alpnProtocols" yaml:"alpnProtocols"`
+	// StatelessSessionResumption determines if stateless (session-ticket based) session resumption is enabled
+	StatelessSessionResumption bool `json:"statelessSessionResumption,omitempty" yaml:"statelessSessionResumption,omitempty"`
+	// StatefulSessionResumption determines if stateful (session-id based) session resumption is enabled
+	StatefulSessionResumption bool `json:"statefulSessionResumption,omitempty" yaml:"statefulSessionResumption,omitempty"`
 }
 
 // TLSCertificate holds a single certificate's details
@@ -465,6 +490,76 @@ type HTTP2Settings struct {
 	ResetStreamOnError *bool `json:"resetStreamOnError,omitempty" yaml:"resetStreamOnError,omitempty"`
 }
 
+// ResponseOverride defines the configuration to override specific responses with a custom one.
+// +k8s:deepcopy-gen=true
+type ResponseOverride struct {
+	// Name is a unique name for a ResponseOverride configuration.
+	// The xds translator only generates one CustomResponse filter for each unique name.
+	Name string `json:"name" yaml:"name"`
+
+	// Rules contains the list of rules to override responses.
+	Rules []ResponseOverrideRule `json:"rules,omitempty"`
+}
+
+// ResponseOverrideRule defines the configuration for overriding a response.
+// +k8s:deepcopy-gen=true
+type ResponseOverrideRule struct {
+	// Name is a generated name for the rule.
+	Name string `json:"name"`
+	// Match configuration.
+	Match CustomResponseMatch `json:"match"`
+	// Response configuration.
+	Response CustomResponse `json:"response"`
+}
+
+// CustomResponseMatch defines the configuration for matching a user response to return a custom one.
+// +k8s:deepcopy-gen=true
+type CustomResponseMatch struct {
+	// Status code to match on. The match evaluates to true if any of the matches are successful.
+	StatusCodes []StatusCodeMatch `json:"statusCodes"`
+}
+
+// StatusCodeMatch defines the configuration for matching a status code.
+// +k8s:deepcopy-gen=true
+type StatusCodeMatch struct {
+	// Value contains the value of the status code.
+	Value *int `json:"value,omitempty"`
+
+	// Range contains a range of status codes.
+	Range *StatusCodeRange `json:"range,omitempty"`
+}
+
+// StatusCodeRange defines the configuration for define a range of status codes.
+type StatusCodeRange struct {
+	// Start of the range, including the start value.
+	Start int `json:"start"`
+	// End of the range, including the end value.
+	End int `json:"end"`
+}
+
+// CustomResponse defines the configuration for returning a custom response.
+// +k8s:deepcopy-gen=true
+type CustomResponse struct {
+	// Content Type of the response. This will be set in the Content-Type header.
+	ContentType *string `json:"contentType,omitempty"`
+
+	// Body of the Custom Response
+	Body *string `json:"body,omitempty"`
+
+	// StatusCode will be used for the response's status code.
+	StatusCode *uint32 `json:"statusCode,omitempty"`
+}
+
+// Validate the fields within the CustomResponse structure
+func (r *CustomResponse) Validate() error {
+	var errs error
+	if status := r.StatusCode; status != nil && (*status > 599 || *status < 100) {
+		errs = errors.Join(errs, ErrDirectResponseStatusInvalid)
+	}
+
+	return errs
+}
+
 // HealthCheckSettings provides HealthCheck configuration on the HTTP/HTTPS listener.
 // +k8s:deepcopy-gen=true
 type HealthCheckSettings egv1a1.HealthCheckSettings
@@ -555,7 +650,7 @@ type HTTPRoute struct {
 	// RemoveResponseHeaders defines a list of headers to be removed from response.
 	RemoveResponseHeaders []string `json:"removeResponseHeaders,omitempty" yaml:"removeResponseHeaders,omitempty"`
 	// Direct responses to be returned for this route. Takes precedence over Destinations and Redirect.
-	DirectResponse *DirectResponse `json:"directResponse,omitempty" yaml:"directResponse,omitempty"`
+	DirectResponse *CustomResponse `json:"directResponse,omitempty" yaml:"directResponse,omitempty"`
 	// Redirections to be returned for this route. Takes precedence over Destinations.
 	Redirect *Redirect `json:"redirect,omitempty" yaml:"redirect,omitempty"`
 	// Destination that requests to this HTTPRoute will be mirrored to
@@ -645,6 +740,8 @@ type TrafficFeatures struct {
 	HTTP2 *HTTP2Settings `json:"http2,omitempty" yaml:"http2,omitempty"`
 	// DNS is used to configure how DNS resolution is handled by the Envoy Proxy cluster
 	DNS *DNS `json:"dns,omitempty" yaml:"dns,omitempty"`
+	// ResponseOverride defines the schema for overriding the response.
+	ResponseOverride *ResponseOverride `json:"responseOverride,omitempty" yaml:"responseOverride,omitempty"`
 }
 
 func (b *TrafficFeatures) Validate() error {
@@ -721,6 +818,18 @@ type EnvoyExtensionFeatures struct {
 // +k8s:deepcopy-gen=true
 type UnstructuredRef struct {
 	Object *unstructured.Unstructured `json:"object,omitempty" yaml:"object,omitempty"`
+}
+
+// RegexMatchReplace defines the schema for modifying HTTP request path using regex.
+//
+// +k8s:deepcopy-gen=true
+type RegexMatchReplace struct {
+	// Pattern matches a regular expression against the value of the HTTP Path.The regex string must
+	// adhere to the syntax documented in https://github.com/google/re2/wiki/Syntax.
+	Pattern string `json:"pattern" yaml:"pattern"`
+	// Substitution is an expression that replaces the matched portion.The expression may include numbered
+	// capture groups that adhere to syntax documented in https://github.com/google/re2/wiki/Syntax.
+	Substitution string `json:"substitution" yaml:"substitution"`
 }
 
 // CORS holds the Cross-Origin Resource Sharing (CORS) policy for the route.
@@ -819,9 +928,21 @@ type OIDC struct {
 
 	// CookieNameOverrides can optionally override the generated name of the cookies set by the oauth filter.
 	CookieNameOverrides *egv1a1.OIDCCookieNames `json:"cookieNameOverrides,omitempty"`
+
+	// CookieDomain sets the domain of the cookies set by the oauth filter.
+	CookieDomain *string `json:"cookieDomain,omitempty"`
 }
 
+// OIDCProvider defines the schema for the OIDC Provider.
+//
+// +k8s:deepcopy-gen=true
 type OIDCProvider struct {
+	// Destination defines the destination for the OIDC Provider.
+	Destination *RouteDestination `json:"destination,omitempty"`
+
+	// Traffic contains configuration for traffic features for the OIDC Provider
+	Traffic *TrafficFeatures `json:"traffic,omitempty"`
+
 	// The OIDC Provider's [authorization endpoint](https://openid.net/specs/openid-connect-core-1_0.html#AuthorizationEndpoint).
 	AuthorizationEndpoint string `json:"authorizationEndpoint,omitempty"`
 
@@ -880,6 +1001,13 @@ type ExtAuth struct {
 	// This setting determines whether to prioritize accessibility over strict security in case of authorization service failure.
 	// +optional
 	FailOpen *bool `json:"failOpen,omitempty"`
+
+	// RecomputeRoute clears the route cache and recalculates the routing decision.
+	// This field must be enabled if the headers generated from the claim are used for
+	// route matching decisions. If the recomputation selects a new route, features targeting
+	// the new matched route will be applied.
+	// +optional
+	RecomputeRoute *bool `json:"recomputeRoute,omitempty"`
 }
 
 // HTTPExtAuthService defines the HTTP External Authorization service
@@ -949,6 +1077,8 @@ type AuthorizationRule struct {
 type Principal struct {
 	// ClientCIDRs defines the client CIDRs to be matched.
 	ClientCIDRs []*CIDRMatch `json:"clientCIDRs,omitempty"`
+	// JWT defines the JWT principal to be matched.
+	JWT *egv1a1.JWTPrincipal `json:"jwt,omitempty"`
 }
 
 // FaultInjection defines the schema for injecting faults into requests.
@@ -1256,30 +1386,13 @@ func (h AddHeader) Validate() error {
 	return errs
 }
 
-// DirectResponse holds the details for returning a body and status code for a route.
-// +k8s:deepcopy-gen=true
-type DirectResponse struct {
-	// StatusCode will be used for the direct response's status code.
-	StatusCode uint32 `json:"statusCode" yaml:"statusCode"`
-}
-
-// Validate the fields within the DirectResponse structure
-func (r DirectResponse) Validate() error {
-	var errs error
-	if status := r.StatusCode; status > 599 || status < 100 {
-		errs = errors.Join(errs, ErrDirectResponseStatusInvalid)
-	}
-
-	return errs
-}
-
 // URLRewrite holds the details for how to rewrite a request
 // +k8s:deepcopy-gen=true
 type URLRewrite struct {
 	// Path contains config for rewriting the path of the request.
-	Path *HTTPPathModifier `json:"path,omitempty" yaml:"path,omitempty"`
-	// Hostname configures the replacement of the request's hostname.
-	Hostname *string `json:"hostname,omitempty" yaml:"hostname,omitempty"`
+	Path *ExtendedHTTPPathModifier `json:"path,omitempty" yaml:"path,omitempty"`
+	// Host configures the replacement of the request's host header.
+	Host *HTTPHostModifier `json:"host,omitempty" yaml:"host,omitempty"`
 }
 
 // Validate the fields within the URLRewrite structure
@@ -1288,6 +1401,12 @@ func (r URLRewrite) Validate() error {
 
 	if r.Path != nil {
 		if err := r.Path.Validate(); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+
+	if r.Host != nil {
+		if err := r.Host.Validate(); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
@@ -1359,6 +1478,70 @@ func (r HTTPPathModifier) Validate() error {
 	return errs
 }
 
+// ExtendedHTTPPathModifier holds instructions for how to modify the path of a request on a redirect response
+// with both core gateway-api and extended envoy gateway capabilities
+// +k8s:deepcopy-gen=true
+type ExtendedHTTPPathModifier struct {
+	HTTPPathModifier `json:",inline" yaml:",inline"`
+	// RegexMatchReplace provides a regex to match an a replacement to perform on the path.
+	RegexMatchReplace *RegexMatchReplace `json:"regexMatchReplace,omitempty" yaml:"regexMatchReplace,omitempty"`
+}
+
+// Validate the fields within the HTTPPathModifier structure
+func (r ExtendedHTTPPathModifier) Validate() error {
+	var errs error
+
+	rewrites := []bool{r.RegexMatchReplace != nil, r.PrefixMatchReplace != nil, r.FullReplace != nil}
+	rwc := 0
+	for _, rw := range rewrites {
+		if rw {
+			rwc++
+		}
+	}
+
+	if rwc > 1 {
+		errs = errors.Join(errs, ErrHTTPPathModifierDoubleReplace)
+	}
+
+	if r.FullReplace == nil && r.PrefixMatchReplace == nil && r.RegexMatchReplace == nil {
+		errs = errors.Join(errs, ErrHTTPPathModifierNoReplace)
+	}
+
+	if r.RegexMatchReplace != nil && (r.RegexMatchReplace.Pattern == "" || r.RegexMatchReplace.Substitution == "") {
+		errs = errors.Join(errs, ErrHTTPPathModifierNoReplace)
+	}
+
+	return errs
+}
+
+// HTTPHostModifier holds instructions for how to modify the host of a request
+// with both core gateway-api and extended envoy gateway capabilities
+// +k8s:deepcopy-gen=true
+type HTTPHostModifier struct {
+	Name    *string `json:"name,omitempty" yaml:"name,omitempty"`
+	Header  *string `json:"header,omitempty" yaml:"header,omitempty"`
+	Backend *bool   `json:"backend,omitempty" yaml:"backend,omitempty"`
+}
+
+// Validate the fields within the HTTPPathModifier structure
+func (r HTTPHostModifier) Validate() error {
+	var errs error
+
+	rewrites := []bool{r.Name != nil, r.Header != nil, r.Backend != nil}
+	rwc := 0
+	for _, rw := range rewrites {
+		if rw {
+			rwc++
+		}
+	}
+
+	if rwc > 1 {
+		errs = errors.Join(errs, ErrHTTPHostModifierDoubleReplace)
+	}
+
+	return errs
+}
+
 // StringMatch holds the various match conditions.
 // Only one of Exact, Prefix, SafeRegex or Distinct can be set.
 // +k8s:deepcopy-gen=true
@@ -1376,6 +1559,8 @@ type StringMatch struct {
 	// Distinct match condition.
 	// Used to match any and all possible unique values encountered within the Name field.
 	Distinct bool `json:"distinct" yaml:"distinct"`
+	// Invert inverts the final match decision
+	Invert *bool `json:"invert,omitempty" yaml:"invert,omitempty"`
 }
 
 // Validate the fields within the StringMatch structure
@@ -1397,6 +1582,9 @@ func (s StringMatch) Validate() error {
 	if s.Distinct {
 		if s.Name == "" {
 			errs = errors.Join(errs, ErrStringMatchNameIsEmpty)
+		}
+		if s.Invert != nil && *s.Invert {
+			errs = errors.Join(errs, ErrStringMatchInvertDistinctInvalid)
 		}
 		matchCount++
 	}
@@ -1666,6 +1854,13 @@ type RateLimitValue struct {
 	Unit RateLimitUnit `json:"unit" yaml:"unit"`
 }
 
+type ProxyAccessLogType egv1a1.ProxyAccessLogType
+
+const (
+	ProxyAccessLogTypeRoute    = ProxyAccessLogType(egv1a1.ProxyAccessLogTypeRoute)
+	ProxyAccessLogTypeListener = ProxyAccessLogType(egv1a1.ProxyAccessLogTypeListener)
+)
+
 // AccessLog holds the access logging configuration.
 // +k8s:deepcopy-gen=true
 type AccessLog struct {
@@ -1678,17 +1873,19 @@ type AccessLog struct {
 // TextAccessLog holds the configuration for text access logging.
 // +k8s:deepcopy-gen=true
 type TextAccessLog struct {
-	CELMatches []string `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
-	Format     *string  `json:"format,omitempty" yaml:"format,omitempty"`
-	Path       string   `json:"path" yaml:"path"`
+	CELMatches []string            `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
+	Format     *string             `json:"format,omitempty" yaml:"format,omitempty"`
+	Path       string              `json:"path" yaml:"path"`
+	LogType    *ProxyAccessLogType `json:"logType,omitempty" yaml:"logType,omitempty"`
 }
 
 // JSONAccessLog holds the configuration for JSON access logging.
 // +k8s:deepcopy-gen=true
 type JSONAccessLog struct {
-	CELMatches []string          `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
-	JSON       map[string]string `json:"json,omitempty" yaml:"json,omitempty"`
-	Path       string            `json:"path" yaml:"path"`
+	CELMatches []string            `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
+	JSON       map[string]string   `json:"json,omitempty" yaml:"json,omitempty"`
+	Path       string              `json:"path" yaml:"path"`
+	LogType    *ProxyAccessLogType `json:"logType,omitempty" yaml:"logType,omitempty"`
 }
 
 // ALSAccessLog holds the configuration for gRPC ALS access logging.
@@ -1702,6 +1899,7 @@ type ALSAccessLog struct {
 	Text        *string                           `json:"text,omitempty" yaml:"text,omitempty"`
 	Attributes  map[string]string                 `json:"attributes,omitempty" yaml:"attributes,omitempty"`
 	HTTP        *ALSAccessLogHTTP                 `json:"http,omitempty" yaml:"http,omitempty"`
+	LogType     *ProxyAccessLogType               `json:"logType,omitempty" yaml:"logType,omitempty"`
 }
 
 // ALSAccessLogHTTP holds the configuration for HTTP ALS access logging.
@@ -1715,13 +1913,14 @@ type ALSAccessLogHTTP struct {
 // OpenTelemetryAccessLog holds the configuration for OpenTelemetry access logging.
 // +k8s:deepcopy-gen=true
 type OpenTelemetryAccessLog struct {
-	CELMatches  []string          `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
-	Authority   string            `json:"authority,omitempty" yaml:"authority,omitempty"`
-	Text        *string           `json:"text,omitempty" yaml:"text,omitempty"`
-	Attributes  map[string]string `json:"attributes,omitempty" yaml:"attributes,omitempty"`
-	Resources   map[string]string `json:"resources,omitempty" yaml:"resources,omitempty"`
-	Destination RouteDestination  `json:"destination,omitempty" yaml:"destination,omitempty"`
-	Traffic     *TrafficFeatures  `json:"traffic,omitempty" yaml:"traffic,omitempty"`
+	CELMatches  []string            `json:"celMatches,omitempty" yaml:"celMatches,omitempty"`
+	Authority   string              `json:"authority,omitempty" yaml:"authority,omitempty"`
+	Text        *string             `json:"text,omitempty" yaml:"text,omitempty"`
+	Attributes  map[string]string   `json:"attributes,omitempty" yaml:"attributes,omitempty"`
+	Resources   map[string]string   `json:"resources,omitempty" yaml:"resources,omitempty"`
+	Destination RouteDestination    `json:"destination,omitempty" yaml:"destination,omitempty"`
+	Traffic     *TrafficFeatures    `json:"traffic,omitempty" yaml:"traffic,omitempty"`
+	LogType     *ProxyAccessLogType `json:"logType,omitempty" yaml:"logType,omitempty"`
 }
 
 // EnvoyPatchPolicy defines the intermediate representation of the EnvoyPatchPolicy resource.
@@ -1861,8 +2060,9 @@ type Tracing struct {
 // Metrics defines the configuration for metrics generated by Envoy
 // +k8s:deepcopy-gen=true
 type Metrics struct {
-	EnableVirtualHostStats bool `json:"enableVirtualHostStats" yaml:"enableVirtualHostStats"`
-	EnablePerEndpointStats bool `json:"enablePerEndpointStats" yaml:"enablePerEndpointStats"`
+	EnableVirtualHostStats          bool `json:"enableVirtualHostStats" yaml:"enableVirtualHostStats"`
+	EnablePerEndpointStats          bool `json:"enablePerEndpointStats" yaml:"enablePerEndpointStats"`
+	EnableRequestResponseSizesStats bool `json:"enableRequestResponseSizesStats" yaml:"enableRequestResponseSizesStats"`
 }
 
 // TCPKeepalive define the TCP Keepalive configuration.

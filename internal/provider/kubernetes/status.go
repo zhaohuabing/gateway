@@ -399,6 +399,38 @@ func (r *gatewayAPIReconciler) subscribeAndUpdateStatus(ctx context.Context, ext
 		r.log.Info("envoyExtensionPolicy status subscriber shutting down")
 	}()
 
+	// Backend object status updater
+	go func() {
+		message.HandleSubscription(
+			message.Metadata{Runner: string(egv1a1.LogComponentProviderRunner), Message: "backend-status"},
+			r.resources.BackendStatuses.Subscribe(ctx),
+			func(update message.Update[types.NamespacedName, *egv1a1.BackendStatus], errChan chan error) {
+				// skip delete updates.
+				if update.Delete {
+					return
+				}
+				key := update.Key
+				val := update.Value
+				r.statusUpdater.Send(Update{
+					NamespacedName: key,
+					Resource:       new(egv1a1.Backend),
+					Mutator: MutatorFunc(func(obj client.Object) client.Object {
+						t, ok := obj.(*egv1a1.Backend)
+						if !ok {
+							err := fmt.Errorf("unsupported object type %T", obj)
+							errChan <- err
+							panic(err)
+						}
+						tCopy := t.DeepCopy()
+						tCopy.Status = *val
+						return tCopy
+					}),
+				})
+			},
+		)
+		r.log.Info("backend status subscriber shutting down")
+	}()
+
 	if extensionManagerEnabled {
 		// EnvoyExtensionPolicy object status updater
 		go func() {
@@ -443,8 +475,8 @@ func (r *gatewayAPIReconciler) updateStatusForGateway(ctx context.Context, gtw *
 		return
 	}
 
-	// Get deployment
-	deploy, err := r.envoyDeploymentForGateway(ctx, gtw)
+	// Get envoyObjects
+	envoyObj, err := r.envoyObjectForGateway(ctx, gtw)
 	if err != nil {
 		r.log.Info("failed to get Deployment for gateway",
 			"namespace", gtw.Namespace, "name", gtw.Name)
@@ -459,7 +491,7 @@ func (r *gatewayAPIReconciler) updateStatusForGateway(ctx context.Context, gtw *
 	// update accepted condition
 	status.UpdateGatewayStatusAcceptedCondition(gtw, true)
 	// update address field and programmed condition
-	status.UpdateGatewayStatusProgrammedCondition(gtw, svc, deploy, r.store.listNodeAddresses()...)
+	status.UpdateGatewayStatusProgrammedCondition(gtw, svc, envoyObj, r.store.listNodeAddresses()...)
 
 	key := utils.NamespacedName(gtw)
 

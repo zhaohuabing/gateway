@@ -147,13 +147,43 @@ func originalIPDetectionExtensions(clientIPDetection *ir.ClientIPDetectionSettin
 	return extensionConfig
 }
 
+func setAddressByIPFamily(socketAddress *corev3.SocketAddress, ipFamily *ir.IPFamily, port uint32) []*listenerv3.AdditionalAddress {
+	if ipFamily == nil {
+		return nil
+	}
+	switch *ipFamily {
+	case ir.IPv4:
+		socketAddress.Address = "0.0.0.0"
+	case ir.IPv6:
+		socketAddress.Address = "::"
+	case ir.Dualstack:
+		socketAddress.Address = "0.0.0.0"
+		return []*listenerv3.AdditionalAddress{
+			{
+				Address: &corev3.Address{
+					Address: &corev3.Address_SocketAddress{
+						SocketAddress: &corev3.SocketAddress{
+							Protocol: socketAddress.Protocol,
+							Address:  "::",
+							PortSpecifier: &corev3.SocketAddress_PortValue{
+								PortValue: port,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	return nil
+}
+
 // buildXdsTCPListener creates a xds Listener resource
 // TODO: Improve function parameters
-func buildXdsTCPListener(name, address string, port uint32, keepalive *ir.TCPKeepalive, connection *ir.ClientConnection, accesslog *ir.AccessLog) *listenerv3.Listener {
+func buildXdsTCPListener(name, address string, port uint32, ipFamily *ir.IPFamily, keepalive *ir.TCPKeepalive, connection *ir.ClientConnection, accesslog *ir.AccessLog) *listenerv3.Listener {
 	socketOptions := buildTCPSocketOptions(keepalive)
-	al := buildXdsAccessLog(accesslog, true)
+	al := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeListener)
 	bufferLimitBytes := buildPerConnectionBufferLimitBytes(connection)
-	return &listenerv3.Listener{
+	listener := &listenerv3.Listener{
 		Name:                          name,
 		AccessLog:                     al,
 		SocketOptions:                 socketOptions,
@@ -169,10 +199,11 @@ func buildXdsTCPListener(name, address string, port uint32, keepalive *ir.TCPKee
 				},
 			},
 		},
-		// Remove /healthcheck/fail from endpoints that trigger a drain of listeners for better control
-		// over the drain process while still allowing the healthcheck to be failed during pod shutdown.
-		DrainType: listenerv3.Listener_MODIFY_ONLY,
 	}
+
+	socketAddress := listener.Address.GetSocketAddress()
+	listener.AdditionalAddresses = setAddressByIPFamily(socketAddress, ipFamily, port)
+	return listener
 }
 
 func buildPerConnectionBufferLimitBytes(connection *ir.ClientConnection) *wrapperspb.UInt32Value {
@@ -186,7 +217,7 @@ func buildPerConnectionBufferLimitBytes(connection *ir.ClientConnection) *wrappe
 func buildXdsQuicListener(name, address string, port uint32, accesslog *ir.AccessLog) *listenerv3.Listener {
 	xdsListener := &listenerv3.Listener{
 		Name:      name + "-quic",
-		AccessLog: buildXdsAccessLog(accesslog, true),
+		AccessLog: buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeListener),
 		Address: &corev3.Address{
 			Address: &corev3.Address_SocketAddress{
 				SocketAddress: &corev3.SocketAddress{
@@ -223,7 +254,7 @@ func buildXdsQuicListener(name, address string, port uint32, accesslog *ir.Acces
 func (t *Translator) addHCMToXDSListener(xdsListener *listenerv3.Listener, irListener *ir.HTTPListener,
 	accesslog *ir.AccessLog, tracing *ir.Tracing, http3Listener bool, connection *ir.ClientConnection,
 ) error {
-	al := buildXdsAccessLog(accesslog, false)
+	al := buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute)
 
 	hcmTracing, err := buildHCMTracing(tracing)
 	if err != nil {
@@ -497,7 +528,7 @@ func addXdsTCPFilterChain(xdsListener *listenerv3.Listener, irRoute *ir.TCPRoute
 	statPrefix = strings.Join([]string{statPrefix, strconv.Itoa(int(xdsListener.Address.GetSocketAddress().GetPortValue()))}, "-")
 
 	mgr := &tcpv3.TcpProxy{
-		AccessLog:  buildXdsAccessLog(accesslog, false),
+		AccessLog:  buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute),
 		StatPrefix: statPrefix,
 		ClusterSpecifier: &tcpv3.TcpProxy_Cluster{
 			Cluster: clusterName,
@@ -627,6 +658,8 @@ func buildDownstreamQUICTransportSocket(tlsConfig *ir.TLSConfig) (*corev3.Transp
 		}
 	}
 
+	setDownstreamTLSSessionSettings(tlsConfig, tlsCtx.DownstreamTlsContext)
+
 	tlsCtxAny, err := anypb.New(tlsCtx)
 	if err != nil {
 		return nil, err
@@ -667,6 +700,8 @@ func buildXdsDownstreamTLSSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSock
 		}
 	}
 
+	setDownstreamTLSSessionSettings(tlsConfig, tlsCtx)
+
 	tlsCtxAny, err := anypb.New(tlsCtx)
 	if err != nil {
 		return nil, err
@@ -678,6 +713,18 @@ func buildXdsDownstreamTLSSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSock
 			TypedConfig: tlsCtxAny,
 		},
 	}, nil
+}
+
+func setDownstreamTLSSessionSettings(tlsConfig *ir.TLSConfig, tlsCtx *tlsv3.DownstreamTlsContext) {
+	if !tlsConfig.StatefulSessionResumption {
+		tlsCtx.DisableStatefulSessionResumption = true
+	}
+
+	if !tlsConfig.StatelessSessionResumption {
+		tlsCtx.SessionTicketKeysType = &tlsv3.DownstreamTlsContext_DisableStatelessSessionResumption{
+			DisableStatelessSessionResumption: true,
+		}
+	}
 }
 
 func buildTLSParams(tlsConfig *ir.TLSConfig) *tlsv3.TlsParameters {
@@ -723,11 +770,12 @@ func buildTLSVersion(version *ir.TLSVersion) tlsv3.TlsParameters_TlsProtocol {
 }
 
 func buildALPNProtocols(alpn []string) []string {
-	if len(alpn) == 0 {
+	if alpn == nil { // not set - default to h2 and http/1.1
 		out := []string{"h2", "http/1.1"}
 		return out
+	} else {
+		return alpn
 	}
-	return alpn
 }
 
 func buildXdsTLSCertSecret(tlsConfig ir.TLSCertificate) *tlsv3.Secret {
@@ -776,7 +824,7 @@ func buildXdsUDPListener(clusterName string, udpListener *ir.UDPListener, access
 
 	udpProxy := &udpv3.UdpProxyConfig{
 		StatPrefix: statPrefix,
-		AccessLog:  buildXdsAccessLog(accesslog, false),
+		AccessLog:  buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeRoute),
 		RouteSpecifier: &udpv3.UdpProxyConfig_Matcher{
 			Matcher: &matcher.Matcher{
 				OnNoMatch: &matcher.Matcher_OnMatch{
@@ -797,7 +845,7 @@ func buildXdsUDPListener(clusterName string, udpListener *ir.UDPListener, access
 
 	xdsListener := &listenerv3.Listener{
 		Name:      udpListener.Name,
-		AccessLog: buildXdsAccessLog(accesslog, true),
+		AccessLog: buildXdsAccessLog(accesslog, ir.ProxyAccessLogTypeListener),
 		Address: &corev3.Address{
 			Address: &corev3.Address_SocketAddress{
 				SocketAddress: &corev3.SocketAddress{

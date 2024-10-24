@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/utils/ptr"
 
+	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/ir"
 )
 
@@ -55,6 +56,7 @@ type xdsClusterArgs struct {
 	backendConnection *ir.BackendConnection
 	dns               *ir.DNS
 	useClientProtocol bool
+	ipFamily          *egv1a1.IPFamily
 }
 
 type EndpointType int
@@ -81,9 +83,13 @@ func buildEndpointType(settings []*ir.DestinationSetting) EndpointType {
 }
 
 func buildXdsCluster(args *xdsClusterArgs) *clusterv3.Cluster {
+	dnsLookupFamily := clusterv3.Cluster_V4_ONLY
+	if args.ipFamily != nil && *args.ipFamily == egv1a1.DualStack {
+		dnsLookupFamily = clusterv3.Cluster_ALL
+	}
 	cluster := &clusterv3.Cluster{
 		Name:            args.name,
-		DnsLookupFamily: clusterv3.Cluster_V4_ONLY,
+		DnsLookupFamily: dnsLookupFamily,
 		CommonLbConfig: &clusterv3.Cluster_CommonLbConfig{
 			LocalityConfigSpecifier: &clusterv3.Cluster_CommonLbConfig_LocalityWeightedLbConfig_{
 				LocalityWeightedLbConfig: &clusterv3.Cluster_CommonLbConfig_LocalityWeightedLbConfig{},
@@ -94,10 +100,19 @@ func buildXdsCluster(args *xdsClusterArgs) *clusterv3.Cluster {
 	}
 
 	cluster.ConnectTimeout = buildConnectTimeout(args.timeout)
-	// set peer endpoint stats
-	if args.metrics != nil && args.metrics.EnablePerEndpointStats {
-		cluster.TrackClusterStats = &clusterv3.TrackClusterStats{
-			PerEndpointStats: args.metrics.EnablePerEndpointStats,
+
+	// Initialize TrackClusterStats if any metrics are enabled
+	if args.metrics != nil && (args.metrics.EnablePerEndpointStats || args.metrics.EnableRequestResponseSizesStats) {
+		cluster.TrackClusterStats = &clusterv3.TrackClusterStats{}
+
+		// Set per endpoint stats if enabled
+		if args.metrics.EnablePerEndpointStats {
+			cluster.TrackClusterStats.PerEndpointStats = args.metrics.EnablePerEndpointStats
+		}
+
+		// Set request response sizes stats if enabled
+		if args.metrics.EnableRequestResponseSizesStats {
+			cluster.TrackClusterStats.RequestResponseSizes = args.metrics.EnableRequestResponseSizesStats
 		}
 	}
 
@@ -183,15 +198,13 @@ func buildXdsCluster(args *xdsClusterArgs) *clusterv3.Cluster {
 		}
 	} else if args.loadBalancer.RoundRobin != nil {
 		cluster.LbPolicy = clusterv3.Cluster_ROUND_ROBIN
-		if args.loadBalancer.RoundRobin.SlowStart != nil {
-			if args.loadBalancer.RoundRobin.SlowStart.Window != nil {
-				cluster.LbConfig = &clusterv3.Cluster_RoundRobinLbConfig_{
-					RoundRobinLbConfig: &clusterv3.Cluster_RoundRobinLbConfig{
-						SlowStartConfig: &clusterv3.Cluster_SlowStartConfig{
-							SlowStartWindow: durationpb.New(args.loadBalancer.RoundRobin.SlowStart.Window.Duration),
-						},
+		if args.loadBalancer.RoundRobin.SlowStart != nil && args.loadBalancer.RoundRobin.SlowStart.Window != nil {
+			cluster.LbConfig = &clusterv3.Cluster_RoundRobinLbConfig_{
+				RoundRobinLbConfig: &clusterv3.Cluster_RoundRobinLbConfig{
+					SlowStartConfig: &clusterv3.Cluster_SlowStartConfig{
+						SlowStartWindow: durationpb.New(args.loadBalancer.RoundRobin.SlowStart.Window.Duration),
 					},
-				}
+				},
 			}
 		}
 	} else if args.loadBalancer.Random != nil {

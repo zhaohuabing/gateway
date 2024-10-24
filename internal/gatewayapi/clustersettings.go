@@ -71,6 +71,8 @@ func translateTrafficFeatures(policy *egv1a1.ClusterSettings) (*ir.TrafficFeatur
 		ret.HTTP2 = h2
 	}
 
+	ret.Retry = buildRetry(policy.Retry)
+
 	// If nothing was set in any of the above calls, return nil instead of an empty
 	// container
 	var empty ir.TrafficFeatures
@@ -81,11 +83,11 @@ func translateTrafficFeatures(policy *egv1a1.ClusterSettings) (*ir.TrafficFeatur
 	return ret, nil
 }
 
-func buildClusterSettingsTimeout(policy egv1a1.ClusterSettings, traffic *ir.TrafficFeatures) (*ir.Timeout, error) {
+func buildClusterSettingsTimeout(policy egv1a1.ClusterSettings, routeTrafficFeatures *ir.TrafficFeatures) (*ir.Timeout, error) {
 	if policy.Timeout == nil {
-		if traffic != nil {
+		if routeTrafficFeatures != nil {
 			// Don't lose any existing timeout definitions.
-			return mergeTimeoutSettings(nil, traffic.Timeout), nil
+			return mergeTimeoutSettings(nil, routeTrafficFeatures.Timeout), nil
 		}
 		return nil, nil
 	}
@@ -109,6 +111,7 @@ func buildClusterSettingsTimeout(policy egv1a1.ClusterSettings, traffic *ir.Traf
 	if pto.HTTP != nil {
 		var cit *metav1.Duration
 		var mcd *metav1.Duration
+		var rt *metav1.Duration
 
 		if pto.HTTP.ConnectionIdleTimeout != nil {
 			d, err := time.ParseDuration(string(*pto.HTTP.ConnectionIdleTimeout))
@@ -128,19 +131,27 @@ func buildClusterSettingsTimeout(policy egv1a1.ClusterSettings, traffic *ir.Traf
 			}
 		}
 
+		if pto.HTTP.RequestTimeout != nil {
+			d, err := time.ParseDuration(string(*pto.HTTP.RequestTimeout))
+			if err != nil {
+				errs = errors.Join(errs, fmt.Errorf("invalid RequestTimeout value %s", *pto.HTTP.RequestTimeout))
+			} else {
+				rt = ptr.To(metav1.Duration{Duration: d})
+			}
+		}
+
 		to.HTTP = &ir.HTTPTimeout{
 			ConnectionIdleTimeout: cit,
 			MaxConnectionDuration: mcd,
+			RequestTimeout:        rt,
 		}
 	}
 
-	// http request timeout is translated during the gateway-api route resource translation
-	// merge route timeout setting with backendtrafficpolicy timeout settings.
-	// Merging is done after the clustersettings definitions are translated so that
-	// clustersettings will override previous settings.
-	if traffic != nil {
-		to = mergeTimeoutSettings(to, traffic.Timeout)
+	// The timeout from route's TrafficFeatures takes precedence over the timeout in BTP
+	if routeTrafficFeatures != nil {
+		to = mergeTimeoutSettings(routeTrafficFeatures.Timeout, to)
 	}
+
 	return to, errs
 }
 
@@ -190,7 +201,7 @@ func buildBackendConnection(policy egv1a1.ClusterSettings) (*ir.BackendConnectio
 				return nil, fmt.Errorf("BufferLimit value %s is out of range", bc.BufferLimit.String())
 			}
 
-			bcIR.BufferLimitBytes = ptr.To(uint32(bf)) // nolint: gosec
+			bcIR.BufferLimitBytes = ptr.To(uint32(bf))
 		}
 	}
 
@@ -299,14 +310,12 @@ func buildLoadBalancer(policy egv1a1.ClusterSettings) (*ir.LoadBalancer, error) 
 			ConsistentHash: consistentHash,
 		}
 	case egv1a1.LeastRequestLoadBalancerType:
-		lb = &ir.LoadBalancer{}
-		if policy.LoadBalancer.SlowStart != nil {
-			if policy.LoadBalancer.SlowStart.Window != nil {
-				lb.LeastRequest = &ir.LeastRequest{
-					SlowStart: &ir.SlowStart{
-						Window: policy.LoadBalancer.SlowStart.Window,
-					},
-				}
+		lb = &ir.LoadBalancer{
+			LeastRequest: &ir.LeastRequest{},
+		}
+		if policy.LoadBalancer.SlowStart != nil && policy.LoadBalancer.SlowStart.Window != nil {
+			lb.LeastRequest.SlowStart = &ir.SlowStart{
+				Window: policy.LoadBalancer.SlowStart.Window,
 			}
 		}
 	case egv1a1.RandomLoadBalancerType:
@@ -315,17 +324,11 @@ func buildLoadBalancer(policy egv1a1.ClusterSettings) (*ir.LoadBalancer, error) 
 		}
 	case egv1a1.RoundRobinLoadBalancerType:
 		lb = &ir.LoadBalancer{
-			RoundRobin: &ir.RoundRobin{
-				SlowStart: &ir.SlowStart{},
-			},
+			RoundRobin: &ir.RoundRobin{},
 		}
-		if policy.LoadBalancer.SlowStart != nil {
-			if policy.LoadBalancer.SlowStart.Window != nil {
-				lb.RoundRobin = &ir.RoundRobin{
-					SlowStart: &ir.SlowStart{
-						Window: policy.LoadBalancer.SlowStart.Window,
-					},
-				}
+		if policy.LoadBalancer.SlowStart != nil && policy.LoadBalancer.SlowStart.Window != nil {
+			lb.RoundRobin.SlowStart = &ir.SlowStart{
+				Window: policy.LoadBalancer.SlowStart.Window,
 			}
 		}
 	}
@@ -339,7 +342,7 @@ func buildConsistentHashLoadBalancer(policy egv1a1.LoadBalancer) (*ir.Consistent
 	if policy.ConsistentHash.TableSize != nil {
 		tableSize := policy.ConsistentHash.TableSize
 
-		if *tableSize > MaxConsistentHashTableSize || !big.NewInt(int64(*tableSize)).ProbablyPrime(0) { // nolint: gosec
+		if *tableSize > MaxConsistentHashTableSize || !big.NewInt(int64(*tableSize)).ProbablyPrime(0) {
 			return nil, fmt.Errorf("invalid TableSize value %d", *tableSize)
 		}
 
@@ -505,4 +508,65 @@ func translateDNS(policy egv1a1.ClusterSettings) *ir.DNS {
 		RespectDNSTTL:  policy.DNS.RespectDNSTTL,
 		DNSRefreshRate: policy.DNS.DNSRefreshRate,
 	}
+}
+
+func buildRetry(r *egv1a1.Retry) *ir.Retry {
+	if r == nil {
+		return nil
+	}
+
+	rt := &ir.Retry{}
+
+	if r.NumRetries != nil {
+		rt.NumRetries = ptr.To(uint32(*r.NumRetries))
+	}
+
+	if r.RetryOn != nil {
+		ro := &ir.RetryOn{}
+		bro := false
+		if r.RetryOn.HTTPStatusCodes != nil {
+			ro.HTTPStatusCodes = makeIrStatusSet(r.RetryOn.HTTPStatusCodes)
+			bro = true
+		}
+
+		if r.RetryOn.Triggers != nil {
+			ro.Triggers = makeIrTriggerSet(r.RetryOn.Triggers)
+			bro = true
+		}
+
+		if bro {
+			rt.RetryOn = ro
+		}
+	}
+
+	if r.PerRetry != nil {
+		pr := &ir.PerRetryPolicy{}
+		bpr := false
+
+		if r.PerRetry.Timeout != nil {
+			pr.Timeout = r.PerRetry.Timeout
+			bpr = true
+		}
+
+		if r.PerRetry.BackOff != nil {
+			if r.PerRetry.BackOff.MaxInterval != nil || r.PerRetry.BackOff.BaseInterval != nil {
+				bop := &ir.BackOffPolicy{}
+				if r.PerRetry.BackOff.MaxInterval != nil {
+					bop.MaxInterval = r.PerRetry.BackOff.MaxInterval
+				}
+
+				if r.PerRetry.BackOff.BaseInterval != nil {
+					bop.BaseInterval = r.PerRetry.BackOff.BaseInterval
+				}
+				pr.BackOff = bop
+				bpr = true
+			}
+		}
+
+		if bpr {
+			rt.PerRetry = pr
+		}
+	}
+
+	return rt
 }

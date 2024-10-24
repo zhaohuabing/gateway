@@ -265,7 +265,6 @@ xds:
                   statPrefix: http-10080
                   useRemoteAddress: true
               name: envoy-gateway-system/eg/http
-            drainType: MODIFY_ONLY
             name: envoy-gateway-system/eg/http
             perConnectionBufferLimitBytes: 32768
     - '@type': type.googleapis.com/envoy.admin.v3.RoutesConfigDump
@@ -281,7 +280,7 @@ xds:
               filterMetadata:
                 envoy-gateway:
                   resources:
-                  - kind: ""
+                  - kind: Gateway
                     name: eg
                     namespace: envoy-gateway-system
                     sectionName: http

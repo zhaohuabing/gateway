@@ -24,6 +24,7 @@ import (
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils"
 )
@@ -81,6 +82,7 @@ var (
 	PathMatchTypeDerefOr       = ptr.Deref[gwapiv1.PathMatchType]
 	GRPCMethodMatchTypeDerefOr = ptr.Deref[gwapiv1.GRPCMethodMatchType]
 	HeaderMatchTypeDerefOr     = ptr.Deref[gwapiv1.HeaderMatchType]
+	GRPCHeaderMatchTypeDerefOr = ptr.Deref[gwapiv1.GRPCHeaderMatchType]
 	QueryParamMatchTypeDerefOr = ptr.Deref[gwapiv1.QueryParamMatchType]
 )
 
@@ -114,7 +116,7 @@ func IsRefToGateway(routeNamespace gwapiv1.Namespace, parentRef gwapiv1.ParentRe
 		return false
 	}
 
-	if parentRef.Kind != nil && string(*parentRef.Kind) != KindGateway {
+	if parentRef.Kind != nil && string(*parentRef.Kind) != resource.KindGateway {
 		return false
 	}
 
@@ -178,6 +180,9 @@ func ValidateHTTPRouteFilter(filter *gwapiv1.HTTPRouteFilter, extGKs ...schema.G
 		switch {
 		case filter.ExtensionRef == nil:
 			return errors.New("extensionRef field must be specified for an extended filter")
+		case string(filter.ExtensionRef.Group) == egv1a1.GroupVersion.Group &&
+			string(filter.ExtensionRef.Kind) == egv1a1.KindHTTPRouteFilter:
+			return nil
 		default:
 			for _, gk := range extGKs {
 				if filter.ExtensionRef.Group == gwapiv1.Group(gk.Group) &&
@@ -416,6 +421,7 @@ func irRouteDestinationName(route RouteContext, ruleIdx int) string {
 	return fmt.Sprintf("%srule/%d", irRoutePrefix(route), ruleIdx)
 }
 
+// irTLSConfigs produces a defaulted IR TLSConfig
 func irTLSConfigs(tlsSecrets ...*corev1.Secret) *ir.TLSConfig {
 	if len(tlsSecrets) == 0 {
 		return nil
@@ -431,6 +437,21 @@ func irTLSConfigs(tlsSecrets ...*corev1.Secret) *ir.TLSConfig {
 			PrivateKey:  tlsSecret.Data[corev1.TLSPrivateKeyKey],
 		}
 	}
+
+	return tlsListenerConfigs
+}
+
+// irTLSConfigsForTCPListener creates an IR TLSConfig with defaults appropriate
+// for TCP/TLS routes, e.g. disabling ALPN
+func irTLSConfigsForTCPListener(tlsSecrets ...*corev1.Secret) *ir.TLSConfig {
+	tlsListenerConfigs := irTLSConfigs(tlsSecrets...)
+
+	// Envoy Gateway disables ALPN by default for non-HTTPS listeners
+	// by setting an empty slice instead of a nil slice
+	if tlsListenerConfigs != nil {
+		tlsListenerConfigs.ALPNProtocols = []string{}
+	}
+
 	return tlsListenerConfigs
 }
 
@@ -442,7 +463,7 @@ func irTLSCACertName(namespace, name string) string {
 	return fmt.Sprintf("%s/%s/%s", namespace, name, caCertKey)
 }
 
-func IsMergeGatewaysEnabled(resources *Resources) bool {
+func IsMergeGatewaysEnabled(resources *resource.Resources) bool {
 	return resources.EnvoyProxyForGatewayClass != nil && resources.EnvoyProxyForGatewayClass.Spec.MergeGateways != nil && *resources.EnvoyProxyForGatewayClass.Spec.MergeGateways
 }
 
@@ -458,7 +479,7 @@ func protocolSliceToStringSlice(protocols []gwapiv1.ProtocolType) []string {
 func getAncestorRefForPolicy(gatewayNN types.NamespacedName, sectionName *gwapiv1a2.SectionName) gwapiv1a2.ParentReference {
 	return gwapiv1a2.ParentReference{
 		Group:       GroupPtr(gwapiv1.GroupName),
-		Kind:        KindPtr(KindGateway),
+		Kind:        KindPtr(resource.KindGateway),
 		Namespace:   NamespacePtr(gatewayNN.Namespace),
 		Name:        gwapiv1.ObjectName(gatewayNN.Name),
 		SectionName: sectionName,
@@ -513,7 +534,7 @@ func parseCIDR(cidr string) (*ir.CIDRMatch, error) {
 	return &ir.CIDRMatch{
 		CIDR:    ipn.String(),
 		IP:      ip.String(),
-		MaskLen: uint32(mask), // nolint: gosec
+		MaskLen: uint32(mask),
 		IsIPv6:  ip.To4() == nil,
 	}, nil
 }
@@ -586,4 +607,22 @@ func setIfNil[T any](target **T, value *T) {
 	if *target == nil {
 		*target = value
 	}
+}
+
+func getIPFamily(envoyProxy *egv1a1.EnvoyProxy) *ir.IPFamily {
+	if envoyProxy == nil || envoyProxy.Spec.IPFamily == nil {
+		return nil
+	}
+	var result ir.IPFamily
+	switch *envoyProxy.Spec.IPFamily {
+	case egv1a1.IPv4:
+		result = ir.IPv4
+	case egv1a1.IPv6:
+		result = ir.IPv6
+	case egv1a1.DualStack:
+		result = ir.Dualstack
+	default:
+		return nil
+	}
+	return &result
 }

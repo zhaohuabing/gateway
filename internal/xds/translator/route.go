@@ -386,14 +386,15 @@ func buildXdsURLRewriteAction(destName string, urlRewrite *ir.URLRewrite, pathMa
 	}
 
 	if urlRewrite.Path != nil {
-		if urlRewrite.Path.FullReplace != nil {
+		switch {
+		case urlRewrite.Path.FullReplace != nil:
 			routeAction.RegexRewrite = &matcherv3.RegexMatchAndSubstitute{
 				Pattern: &matcherv3.RegexMatcher{
 					Regex: "^/.*$",
 				},
 				Substitution: *urlRewrite.Path.FullReplace,
 			}
-		} else if urlRewrite.Path.PrefixMatchReplace != nil {
+		case urlRewrite.Path.PrefixMatchReplace != nil:
 			// Circumvent the case of "//" when the replace string is "/"
 			// An empty replace string does not seem to solve the issue so we are using
 			// a regex match and replace instead
@@ -406,12 +407,31 @@ func buildXdsURLRewriteAction(destName string, urlRewrite *ir.URLRewrite, pathMa
 				// and the urlRewrite.Path.PrefixMatchReplace suffix with / the upstream will get unwanted /
 				routeAction.PrefixRewrite = strings.TrimSuffix(*urlRewrite.Path.PrefixMatchReplace, "/")
 			}
+		case urlRewrite.Path.RegexMatchReplace != nil:
+			routeAction.RegexRewrite = &matcherv3.RegexMatchAndSubstitute{
+				Pattern: &matcherv3.RegexMatcher{
+					Regex: urlRewrite.Path.RegexMatchReplace.Pattern,
+				},
+				Substitution: urlRewrite.Path.RegexMatchReplace.Substitution,
+			}
 		}
 	}
 
-	if urlRewrite.Hostname != nil {
-		routeAction.HostRewriteSpecifier = &routev3.RouteAction_HostRewriteLiteral{
-			HostRewriteLiteral: *urlRewrite.Hostname,
+	if urlRewrite.Host != nil {
+
+		switch {
+		case urlRewrite.Host.Name != nil:
+			routeAction.HostRewriteSpecifier = &routev3.RouteAction_HostRewriteLiteral{
+				HostRewriteLiteral: *urlRewrite.Host.Name,
+			}
+		case urlRewrite.Host.Header != nil:
+			routeAction.HostRewriteSpecifier = &routev3.RouteAction_HostRewriteHeader{
+				HostRewriteHeader: *urlRewrite.Host.Header,
+			}
+		case urlRewrite.Host.Backend != nil:
+			routeAction.HostRewriteSpecifier = &routev3.RouteAction_AutoHostRewrite{
+				AutoHostRewrite: wrapperspb.Bool(true),
+			}
 		}
 
 		routeAction.AppendXForwardedHost = true
@@ -420,8 +440,20 @@ func buildXdsURLRewriteAction(destName string, urlRewrite *ir.URLRewrite, pathMa
 	return routeAction
 }
 
-func buildXdsDirectResponseAction(res *ir.DirectResponse) *routev3.DirectResponseAction {
-	routeAction := &routev3.DirectResponseAction{Status: res.StatusCode}
+func buildXdsDirectResponseAction(res *ir.CustomResponse) *routev3.DirectResponseAction {
+	routeAction := &routev3.DirectResponseAction{}
+	if res.StatusCode != nil {
+		routeAction.Status = *res.StatusCode
+	}
+
+	if res.Body != nil && *res.Body != "" {
+		routeAction.Body = &corev3.DataSource{
+			Specifier: &corev3.DataSource_InlineString{
+				InlineString: *res.Body,
+			},
+		}
+	}
+
 	return routeAction
 }
 
@@ -598,7 +630,7 @@ func buildRetryPolicy(route *ir.HTTPRoute) (*routev3.RetryPolicy, error) {
 func buildRetryStatusCodes(codes []ir.HTTPStatus) []uint32 {
 	ret := make([]uint32, len(codes))
 	for i, c := range codes {
-		ret[i] = uint32(c) // nolint: gosec
+		ret[i] = uint32(c)
 	}
 	return ret
 }

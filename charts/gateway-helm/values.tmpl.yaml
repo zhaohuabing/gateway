@@ -20,6 +20,8 @@ global:
       pullSecrets: []
 podDisruptionBudget:
   minAvailable: 0
+  # maxUnavailable: 1
+
 deployment:
   envoyGateway:
     image:
@@ -29,7 +31,6 @@ deployment:
     imagePullSecrets: []
     resources:
       limits:
-        cpu: 500m
         memory: 1024Mi
       requests:
         cpu: 100m
@@ -47,6 +48,7 @@ deployment:
     - name: metrics
       port: 19001
       targetPort: 19001
+  priorityClassName: null
   replicas: 1
   pod:
     affinity: {}
@@ -57,6 +59,9 @@ deployment:
     topologySpreadConstraints: []
     tolerations: []
     nodeSelector: {}
+
+service:
+  annotations: {}
 
 config:
   envoyGateway:
@@ -77,6 +82,9 @@ certgen:
   job:
     annotations: {}
     resources: {}
+    affinity: {}
+    tolerations: []
+    nodeSelector: {}
     ttlSecondsAfterFinished: 30
   rbac:
     annotations: {}

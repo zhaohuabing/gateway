@@ -208,8 +208,12 @@ spec:
                           type: string
                         jsonPath:
                           description: |-
-                            JSONPath specifies the locations of the target document/field where the operation will be performed
-                            Refer to https://datatracker.ietf.org/doc/rfc9535/ for more details.
+                            JSONPath is a JSONPath expression. Refer to https://datatracker.ietf.org/doc/rfc9535/ for more details.
+                            It produces one or more JSONPointer expressions based on the given JSON document.
+                            If no JSONPointer is found, it will result in an error.
+                            If the 'Path' property is also set, it will be appended to the resulting JSONPointer expressions from the JSONPath evaluation.
+                            This is useful when creating a property that does not yet exist in the JSON document.
+                            The final JSONPointer expressions specifies the locations in the target document/field where the operation will be applied.
                           type: string
                         op:
                           description: Op is the type of operation to perform
@@ -223,8 +227,8 @@ spec:
                           type: string
                         path:
                           description: |-
-                            Path is the location of the target document/field where the operation will be performed
-                            Refer to https://datatracker.ietf.org/doc/html/rfc6901 for more details.
+                            Path is a JSONPointer expression. Refer to https://datatracker.ietf.org/doc/html/rfc6901 for more details.
+                            It specifies the location of the target document/field where the operation will be performed
                           type: string
                         value:
                           description: |-
@@ -301,6 +305,8 @@ spec:
 
                   - envoy.filters.http.ratelimit
 
+                  - envoy.filters.http.custom_response
+
                   - envoy.filters.http.router
 
                   Note: "envoy.filters.http.router" cannot be reordered, it's always the last filter in the chain.
@@ -326,6 +332,7 @@ spec:
                       - envoy.filters.http.rbac
                       - envoy.filters.http.local_ratelimit
                       - envoy.filters.http.ratelimit
+                      - envoy.filters.http.custom_response
                       type: string
                     before:
                       description: |-
@@ -345,6 +352,7 @@ spec:
                       - envoy.filters.http.rbac
                       - envoy.filters.http.local_ratelimit
                       - envoy.filters.http.ratelimit
+                      - envoy.filters.http.custom_response
                       type: string
                     name:
                       description: Name of the filter.
@@ -362,6 +370,7 @@ spec:
                       - envoy.filters.http.rbac
                       - envoy.filters.http.local_ratelimit
                       - envoy.filters.http.ratelimit
+                      - envoy.filters.http.custom_response
                       type: string
                   required:
                   - name
@@ -373,6 +382,20 @@ spec:
                     rule: (has(self.before) && !has(self.after)) || (!has(self.before)
                       && has(self.after))
                 type: array
+              ipFamily:
+                description: |-
+                  IPFamily specifies the IP family for the EnvoyProxy fleet.
+                  This setting only affects the Gateway listener port and does not impact
+                  other aspects of the Envoy proxy configuration.
+                  If not specified, the system will operate as follows:
+                  - It defaults to IPv4 only.
+                  - IPv6 and dual-stack environments are not supported in this default configuration.
+                  Note: To enable IPv6 or dual-stack functionality, explicit configuration is required.
+                enum:
+                - IPv4
+                - IPv6
+                - DualStack
+                type: string
               logging:
                 default:
                   level:
@@ -10130,6 +10153,13 @@ spec:
                             - Local
                             - Cluster
                             type: string
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Labels that should be appended to the service.
+                              By default, no labels are appended.
+                            type: object
                           loadBalancerClass:
                             description: |-
                               LoadBalancerClass, when specified, allows for choosing the LoadBalancer provider
@@ -10227,6 +10257,7 @@ spec:
                       optional auxiliary control planes. Supported types are "Kubernetes".
                     enum:
                     - Kubernetes
+                    - Custom
                     type: string
                 required:
                 - type
@@ -10243,12 +10274,12 @@ spec:
                   drainTimeout:
                     description: |-
                       DrainTimeout defines the graceful drain timeout. This should be less than the pod's terminationGracePeriodSeconds.
-                      If unspecified, defaults to 600 seconds.
+                      If unspecified, defaults to 60 seconds.
                     type: string
                   minDrainDuration:
                     description: |-
                       MinDrainDuration defines the minimum drain duration allowing time for endpoint deprogramming to complete.
-                      If unspecified, defaults to 5 seconds.
+                      If unspecified, defaults to 10 seconds.
                     type: string
                 type: object
               telemetry:
@@ -10312,6 +10343,7 @@ spec:
                                 Invalid [CEL](https://www.envoyproxy.io/docs/envoy/latest/xds/type/v3/cel.proto.html#common-expression-language-cel-proto) expressions will be ignored.
                               items:
                                 type: string
+                              maxItems: 10
                               type: array
                             sinks:
                               description: Sinks defines the sinks of accesslog.
@@ -11076,6 +11108,90 @@ spec:
                                             required:
                                             - version
                                             type: object
+                                          retry:
+                                            description: |-
+                                              Retry provides more advanced usage, allowing users to customize the number of retries, retry fallback strategy, and retry triggering conditions.
+                                              If not set, retry will be disabled.
+                                            properties:
+                                              numRetries:
+                                                default: 2
+                                                description: NumRetries is the number
+                                                  of retries to be attempted. Defaults
+                                                  to 2.
+                                                format: int32
+                                                minimum: 0
+                                                type: integer
+                                              perRetry:
+                                                description: PerRetry is the retry
+                                                  policy to be applied per retry attempt.
+                                                properties:
+                                                  backOff:
+                                                    description: |-
+                                                      Backoff is the backoff policy to be applied per retry attempt. gateway uses a fully jittered exponential
+                                                      back-off algorithm for retries. For additional details,
+                                                      see https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-max-retries
+                                                    properties:
+                                                      baseInterval:
+                                                        description: BaseInterval
+                                                          is the base interval between
+                                                          retries.
+                                                        format: duration
+                                                        type: string
+                                                      maxInterval:
+                                                        description: |-
+                                                          MaxInterval is the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set.
+                                                          The default is 10 times the base_interval
+                                                        format: duration
+                                                        type: string
+                                                    type: object
+                                                  timeout:
+                                                    description: Timeout is the timeout
+                                                      per retry attempt.
+                                                    format: duration
+                                                    type: string
+                                                type: object
+                                              retryOn:
+                                                description: |-
+                                                  RetryOn specifies the retry trigger condition.
+
+                                                  If not specified, the default is to retry on connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes(503).
+                                                properties:
+                                                  httpStatusCodes:
+                                                    description: |-
+                                                      HttpStatusCodes specifies the http status codes to be retried.
+                                                      The retriable-status-codes trigger must also be configured for these status codes to trigger a retry.
+                                                    items:
+                                                      description: HTTPStatus defines
+                                                        the http status code.
+                                                      exclusiveMaximum: true
+                                                      maximum: 600
+                                                      minimum: 100
+                                                      type: integer
+                                                    type: array
+                                                  triggers:
+                                                    description: Triggers specifies
+                                                      the retry trigger condition(Http/Grpc).
+                                                    items:
+                                                      description: TriggerEnum specifies
+                                                        the conditions that trigger
+                                                        retries.
+                                                      enum:
+                                                      - 5xx
+                                                      - gateway-error
+                                                      - reset
+                                                      - connect-failure
+                                                      - retriable-4xx
+                                                      - refused-stream
+                                                      - retriable-status-codes
+                                                      - cancelled
+                                                      - deadline-exceeded
+                                                      - internal
+                                                      - resource-exhausted
+                                                      - unavailable
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                            type: object
                                           tcpKeepalive:
                                             description: |-
                                               TcpKeepalive settings associated with the upstream client connection.
@@ -11121,6 +11237,13 @@ spec:
                                                     description: |-
                                                       The maximum duration of an HTTP connection.
                                                       Default: unlimited.
+                                                    pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                                                    type: string
+                                                  requestTimeout:
+                                                    description: RequestTimeout is
+                                                      the time until which entire
+                                                      response is received from the
+                                                      upstream.
                                                     pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
                                                     type: string
                                                 type: object
@@ -11962,6 +12085,90 @@ spec:
                                             required:
                                             - version
                                             type: object
+                                          retry:
+                                            description: |-
+                                              Retry provides more advanced usage, allowing users to customize the number of retries, retry fallback strategy, and retry triggering conditions.
+                                              If not set, retry will be disabled.
+                                            properties:
+                                              numRetries:
+                                                default: 2
+                                                description: NumRetries is the number
+                                                  of retries to be attempted. Defaults
+                                                  to 2.
+                                                format: int32
+                                                minimum: 0
+                                                type: integer
+                                              perRetry:
+                                                description: PerRetry is the retry
+                                                  policy to be applied per retry attempt.
+                                                properties:
+                                                  backOff:
+                                                    description: |-
+                                                      Backoff is the backoff policy to be applied per retry attempt. gateway uses a fully jittered exponential
+                                                      back-off algorithm for retries. For additional details,
+                                                      see https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-max-retries
+                                                    properties:
+                                                      baseInterval:
+                                                        description: BaseInterval
+                                                          is the base interval between
+                                                          retries.
+                                                        format: duration
+                                                        type: string
+                                                      maxInterval:
+                                                        description: |-
+                                                          MaxInterval is the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set.
+                                                          The default is 10 times the base_interval
+                                                        format: duration
+                                                        type: string
+                                                    type: object
+                                                  timeout:
+                                                    description: Timeout is the timeout
+                                                      per retry attempt.
+                                                    format: duration
+                                                    type: string
+                                                type: object
+                                              retryOn:
+                                                description: |-
+                                                  RetryOn specifies the retry trigger condition.
+
+                                                  If not specified, the default is to retry on connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes(503).
+                                                properties:
+                                                  httpStatusCodes:
+                                                    description: |-
+                                                      HttpStatusCodes specifies the http status codes to be retried.
+                                                      The retriable-status-codes trigger must also be configured for these status codes to trigger a retry.
+                                                    items:
+                                                      description: HTTPStatus defines
+                                                        the http status code.
+                                                      exclusiveMaximum: true
+                                                      maximum: 600
+                                                      minimum: 100
+                                                      type: integer
+                                                    type: array
+                                                  triggers:
+                                                    description: Triggers specifies
+                                                      the retry trigger condition(Http/Grpc).
+                                                    items:
+                                                      description: TriggerEnum specifies
+                                                        the conditions that trigger
+                                                        retries.
+                                                      enum:
+                                                      - 5xx
+                                                      - gateway-error
+                                                      - reset
+                                                      - connect-failure
+                                                      - retriable-4xx
+                                                      - refused-stream
+                                                      - retriable-status-codes
+                                                      - cancelled
+                                                      - deadline-exceeded
+                                                      - internal
+                                                      - resource-exhausted
+                                                      - unavailable
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                            type: object
                                           tcpKeepalive:
                                             description: |-
                                               TcpKeepalive settings associated with the upstream client connection.
@@ -12007,6 +12214,13 @@ spec:
                                                     description: |-
                                                       The maximum duration of an HTTP connection.
                                                       Default: unlimited.
+                                                    pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                                                    type: string
+                                                  requestTimeout:
+                                                    description: RequestTimeout is
+                                                      the time until which entire
+                                                      response is received from the
+                                                      upstream.
                                                     pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
                                                     type: string
                                                 type: object
@@ -12081,6 +12295,17 @@ spec:
                               maxItems: 50
                               minItems: 1
                               type: array
+                            type:
+                              description: |-
+                                Type defines the component emitting the accesslog, such as Listener and Route.
+                                If type not defined, the setting would apply to:
+                                (1) All Routes.
+                                (2) Listeners if and only if Envoy does not find a matching route for a request.
+                                If type is defined, the accesslog settings would apply to the relevant component (as-is).
+                              enum:
+                              - Listener
+                              - Route
+                              type: string
                           required:
                           - sinks
                           type: object
@@ -12096,6 +12321,11 @@ spec:
                         description: |-
                           EnablePerEndpointStats enables per endpoint envoy stats metrics.
                           Please use with caution.
+                        type: boolean
+                      enableRequestResponseSizesStats:
+                        description: EnableRequestResponseSizesStats enables publishing
+                          of histograms tracking header and body sizes of requests
+                          and responses.
                         type: boolean
                       enableVirtualHostStats:
                         description: EnableVirtualHostStats enables envoy stat metrics
@@ -12896,6 +13126,87 @@ spec:
                                       required:
                                       - version
                                       type: object
+                                    retry:
+                                      description: |-
+                                        Retry provides more advanced usage, allowing users to customize the number of retries, retry fallback strategy, and retry triggering conditions.
+                                        If not set, retry will be disabled.
+                                      properties:
+                                        numRetries:
+                                          default: 2
+                                          description: NumRetries is the number of
+                                            retries to be attempted. Defaults to 2.
+                                          format: int32
+                                          minimum: 0
+                                          type: integer
+                                        perRetry:
+                                          description: PerRetry is the retry policy
+                                            to be applied per retry attempt.
+                                          properties:
+                                            backOff:
+                                              description: |-
+                                                Backoff is the backoff policy to be applied per retry attempt. gateway uses a fully jittered exponential
+                                                back-off algorithm for retries. For additional details,
+                                                see https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-max-retries
+                                              properties:
+                                                baseInterval:
+                                                  description: BaseInterval is the
+                                                    base interval between retries.
+                                                  format: duration
+                                                  type: string
+                                                maxInterval:
+                                                  description: |-
+                                                    MaxInterval is the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set.
+                                                    The default is 10 times the base_interval
+                                                  format: duration
+                                                  type: string
+                                              type: object
+                                            timeout:
+                                              description: Timeout is the timeout
+                                                per retry attempt.
+                                              format: duration
+                                              type: string
+                                          type: object
+                                        retryOn:
+                                          description: |-
+                                            RetryOn specifies the retry trigger condition.
+
+                                            If not specified, the default is to retry on connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes(503).
+                                          properties:
+                                            httpStatusCodes:
+                                              description: |-
+                                                HttpStatusCodes specifies the http status codes to be retried.
+                                                The retriable-status-codes trigger must also be configured for these status codes to trigger a retry.
+                                              items:
+                                                description: HTTPStatus defines the
+                                                  http status code.
+                                                exclusiveMaximum: true
+                                                maximum: 600
+                                                minimum: 100
+                                                type: integer
+                                              type: array
+                                            triggers:
+                                              description: Triggers specifies the
+                                                retry trigger condition(Http/Grpc).
+                                              items:
+                                                description: TriggerEnum specifies
+                                                  the conditions that trigger retries.
+                                                enum:
+                                                - 5xx
+                                                - gateway-error
+                                                - reset
+                                                - connect-failure
+                                                - retriable-4xx
+                                                - refused-stream
+                                                - retriable-status-codes
+                                                - cancelled
+                                                - deadline-exceeded
+                                                - internal
+                                                - resource-exhausted
+                                                - unavailable
+                                                type: string
+                                              type: array
+                                          type: object
+                                      type: object
                                     tcpKeepalive:
                                       description: |-
                                         TcpKeepalive settings associated with the upstream client connection.
@@ -12940,6 +13251,12 @@ spec:
                                               description: |-
                                                 The maximum duration of an HTTP connection.
                                                 Default: unlimited.
+                                              pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                                              type: string
+                                            requestTimeout:
+                                              description: RequestTimeout is the time
+                                                until which entire response is received
+                                                from the upstream.
                                               pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
                                               type: string
                                           type: object
@@ -13791,6 +14108,87 @@ spec:
                                 required:
                                 - version
                                 type: object
+                              retry:
+                                description: |-
+                                  Retry provides more advanced usage, allowing users to customize the number of retries, retry fallback strategy, and retry triggering conditions.
+                                  If not set, retry will be disabled.
+                                properties:
+                                  numRetries:
+                                    default: 2
+                                    description: NumRetries is the number of retries
+                                      to be attempted. Defaults to 2.
+                                    format: int32
+                                    minimum: 0
+                                    type: integer
+                                  perRetry:
+                                    description: PerRetry is the retry policy to be
+                                      applied per retry attempt.
+                                    properties:
+                                      backOff:
+                                        description: |-
+                                          Backoff is the backoff policy to be applied per retry attempt. gateway uses a fully jittered exponential
+                                          back-off algorithm for retries. For additional details,
+                                          see https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#config-http-filters-router-x-envoy-max-retries
+                                        properties:
+                                          baseInterval:
+                                            description: BaseInterval is the base
+                                              interval between retries.
+                                            format: duration
+                                            type: string
+                                          maxInterval:
+                                            description: |-
+                                              MaxInterval is the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set.
+                                              The default is 10 times the base_interval
+                                            format: duration
+                                            type: string
+                                        type: object
+                                      timeout:
+                                        description: Timeout is the timeout per retry
+                                          attempt.
+                                        format: duration
+                                        type: string
+                                    type: object
+                                  retryOn:
+                                    description: |-
+                                      RetryOn specifies the retry trigger condition.
+
+                                      If not specified, the default is to retry on connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes(503).
+                                    properties:
+                                      httpStatusCodes:
+                                        description: |-
+                                          HttpStatusCodes specifies the http status codes to be retried.
+                                          The retriable-status-codes trigger must also be configured for these status codes to trigger a retry.
+                                        items:
+                                          description: HTTPStatus defines the http
+                                            status code.
+                                          exclusiveMaximum: true
+                                          maximum: 600
+                                          minimum: 100
+                                          type: integer
+                                        type: array
+                                      triggers:
+                                        description: Triggers specifies the retry
+                                          trigger condition(Http/Grpc).
+                                        items:
+                                          description: TriggerEnum specifies the conditions
+                                            that trigger retries.
+                                          enum:
+                                          - 5xx
+                                          - gateway-error
+                                          - reset
+                                          - connect-failure
+                                          - retriable-4xx
+                                          - refused-stream
+                                          - retriable-status-codes
+                                          - cancelled
+                                          - deadline-exceeded
+                                          - internal
+                                          - resource-exhausted
+                                          - unavailable
+                                          type: string
+                                        type: array
+                                    type: object
+                                type: object
                               tcpKeepalive:
                                 description: |-
                                   TcpKeepalive settings associated with the upstream client connection.
@@ -13836,6 +14234,12 @@ spec:
                                           Default: unlimited.
                                         pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
                                         type: string
+                                      requestTimeout:
+                                        description: RequestTimeout is the time until
+                                          which entire response is received from the
+                                          upstream.
+                                        pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
+                                        type: string
                                     type: object
                                   tcp:
                                     description: Timeout settings for TCP.
@@ -13868,6 +14272,7 @@ spec:
                             enum:
                             - OpenTelemetry
                             - Zipkin
+                            - Datadog
                             type: string
                           zipkin:
                             description: Zipkin defines the Zipkin tracing provider

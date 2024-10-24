@@ -4,7 +4,6 @@
 // the root of the repo.
 
 //go:build e2e
-// +build e2e
 
 package tests
 
@@ -137,6 +136,7 @@ var CookieBasedSessionPersistenceTest = suite.ConformanceTest{
 						MaxAge:   10,
 						Path:     "/v2",
 						HttpOnly: true,
+						Quoted:   true,
 					}, cmpopts.IgnoreFields(http.Cookie{}, "Value", "Raw"), // Ignore the value as it is random.
 					); diff != "" {
 						t.Fatalf("unexpected cookie: %v", diff)

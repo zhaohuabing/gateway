@@ -237,7 +237,18 @@ func (r *EnvoyGatewayProvider) GetEnvoyGatewayKubeProvider() *EnvoyGatewayKubern
 	if r.Kubernetes.ShutdownManager == nil {
 		r.Kubernetes.ShutdownManager = &ShutdownManager{Image: ptr.To(DefaultShutdownManagerImage)}
 	}
+
 	return r.Kubernetes
+}
+
+func (r *EnvoyGatewayProvider) IsRunningOnKubernetes() bool {
+	return r.Type == ProviderTypeKubernetes
+}
+
+func (r *EnvoyGatewayProvider) IsRunningOnHost() bool {
+	return r.Type == ProviderTypeCustom &&
+		r.Custom.Infrastructure != nil &&
+		r.Custom.Infrastructure.Type == InfrastructureProviderTypeHost
 }
 
 // DefaultEnvoyGatewayLoggingLevel returns a new EnvoyGatewayLogging with default configuration parameters.

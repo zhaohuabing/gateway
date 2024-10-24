@@ -47,6 +47,8 @@
               sdsConfig:
                 ads: {}
                 resourceApiVersion: V3
+          disableStatefulSessionResumption: true
+          disableStatelessSessionResumption: true
   name: envoy-gateway/gateway-1/tls-quic
   udpListenerConfig:
     downstreamSocketConfig: {}
@@ -55,7 +57,6 @@
     socketAddress:
       address: 0.0.0.0
       portValue: 10443
-  drainType: MODIFY_ONLY
   filterChains:
   - filters:
     - name: envoy.filters.network.http_connection_manager
@@ -97,5 +98,7 @@
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
+        disableStatefulSessionResumption: true
+        disableStatelessSessionResumption: true
   name: envoy-gateway/gateway-1/tls
   perConnectionBufferLimitBytes: 32768

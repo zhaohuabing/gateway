@@ -4,7 +4,6 @@
 // the root of the repo.
 
 //go:build e2e
-// +build e2e
 
 package tests
 
@@ -33,7 +32,6 @@ import (
 	"k8s.io/utils/ptr"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
-	gwapiv1b1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/gateway-api/conformance/utils/http"
 	"sigs.k8s.io/gateway-api/conformance/utils/kubernetes"
 	"sigs.k8s.io/gateway-api/conformance/utils/suite"
@@ -41,6 +39,7 @@ import (
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/gatewayapi"
+	"github.com/envoyproxy/gateway/internal/gatewayapi/resource"
 )
 
 const (
@@ -85,7 +84,7 @@ var OCIWasmTest = suite.ConformanceTest{
 		// Wait for the EnvoyExtensionPolicy to be accepted
 		ancestorRef := gwapiv1a2.ParentReference{
 			Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-			Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+			Kind:      gatewayapi.KindPtr(resource.KindGateway),
 			Namespace: gatewayapi.NamespacePtr(testNS),
 			Name:      gwapiv1.ObjectName(testGW),
 		}
@@ -188,7 +187,7 @@ var OCIWasmTest = suite.ConformanceTest{
 			// Wait for the EnvoyExtensionPolicy to be failed due to missing pull secret
 			ancestorRef := gwapiv1a2.ParentReference{
 				Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-				Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+				Kind:      gatewayapi.KindPtr(resource.KindGateway),
 				Namespace: gatewayapi.NamespacePtr(testNS),
 				Name:      gwapiv1.ObjectName(testGW),
 			}
@@ -223,7 +222,7 @@ var OCIWasmTest = suite.ConformanceTest{
 			// Wait for the EnvoyExtensionPolicy to be failed due to missing pull secret
 			ancestorRef := gwapiv1a2.ParentReference{
 				Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
-				Kind:      gatewayapi.KindPtr(gatewayapi.KindGateway),
+				Kind:      gatewayapi.KindPtr(resource.KindGateway),
 				Namespace: gatewayapi.NamespacePtr(testNS),
 				Name:      gwapiv1.ObjectName(testGW),
 			}
@@ -416,7 +415,7 @@ func createEEPForWasmTest(
 		},
 	}
 	if withPullSecret {
-		eep.Spec.Wasm[0].Code.Image.PullSecretRef = &gwapiv1b1.SecretObjectReference{
+		eep.Spec.Wasm[0].Code.Image.PullSecretRef = &gwapiv1.SecretObjectReference{
 			Name: gwapiv1.ObjectName(pullSecret),
 		}
 	}
