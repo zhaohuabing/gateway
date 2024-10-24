@@ -54,20 +54,22 @@ changes:
       Use linkinator to detect dead links in docs
       Use helm-docs to generate chart docs
       Support Not-Implemented-Hide marker in API docs
-
+      Updated Backend docs to include TLSRoute and Security Policy OIDC Provider support
+      Update docs for ratelimit to add examples for invert match headers
+      Added docs for Datadog tracing
 
   - area: installation
     change: |
       Added new gateway-addons-helm chart for Observability
-      Added support for global image settings for all images in Envoy Gateway helm chart
+      Added Support for global image settings for all images in Envoy Gateway helm chart
       Added Support for PodDistruptionBudget for Envoy Gateway
       Added Support for TopologySpreadConstraints for Envoy Gateway
       Added Support for Tolerations for Envoy Gateway
       Added Support for Ratelimit image pull secrets and pull policy
       Updated ttlSecondsAfterFinished on certgen job to 30 by default
       Updated Envoy Gateway ImagePullPolicy to IfNotPresent released charts
-      Remove envoy-gateway-metrics-service and merge its contents into envoy-gateway service
-
+      Removed envoy-gateway-metrics-service and merge its contents into envoy-gateway service
+      Removed default cpu limit in Envoy Gateway Helm Chart
 
   - area: api
     change: |
@@ -126,7 +128,9 @@ changes:
       Added Support for Wasm extension in EnvoyExtensionPolicy CRD
       Added Support for External Processing extension in EnvoyExtensionPolicy CRD
       Removed Status Print Column from xPolicy CRDs
-
+      Added Support for Response Overriding in BackendTrafficPolicy CRD
+      Added Support for Backend API for OIDC Provider in SecurityPolicy CRD
+      Added Support for invert matching headers for RateLimit in BackendTrafficPolicy CRD
 
     breaking-change: |
       Gateway-API BackendTLSPolicy v1alpha3 is incompatible with previous versions of the CRD
@@ -177,7 +181,9 @@ changes:
       Run CEL tests on all supported K8s versions
       Added OSV Scanner for Golang Vulnerabilities and Licenses
       Added Trivy scanner for Docker images
-
+      Added performance benchmarking test for 1000 HTTPRoutes
+      Added e2e test for Datadog tracing
+      Added e2e tests for ratelimit invert matching headers
 
   - area: translator
     change: |
@@ -218,12 +224,21 @@ changes:
       Fixed Reconciliation when a referenced Secret or ConfigMap changes
       Fixed ReplaceFullPath not working for root path
       Fixed Default Application Protocol to TCP for Zipkin Tracing
-      Fixed not appending well-known ports (80, 443) in rediret Location header
+      Fixed not appending well-known ports (80, 443) in redirect Location header
+      Added Support for host rewrite for HTTPRouteFilter
+      Added Support for non-Kubernetes Backends for TLSRoute
+      Fixed empty connection limit causes XDS rejection
+      Fixed ratelimit not working with both headers and cidr matches
+      Added Support for fallback to the Backend API
+      Added Support for Request Timeout in BackendTrafficPolicy
+      Added Support for client TLS session resumption
 
   - area: providers
     change: |
       Bumped K8s Client to v0.30.0
-
+      Fixed repeated resources and optimize memory usage
+      Added Support for host-infra provider(experimental)
+      Added Support for reloadable EnvoyGateway configuration
 
   - area: xds
     change: |
