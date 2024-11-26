@@ -294,8 +294,7 @@ func (r *gatewayAPIReconciler) validateServiceForReconcile(obj client.Object) bo
 	// Check if the Service belongs to a Gateway, if so, update the Gateway status.
 	gtw := r.findOwningGateway(ctx, labels)
 	if gtw != nil {
-		r.updateStatusForGateway(ctx, gtw)
-		return false
+		return true
 	}
 
 	// Merged gateways will have only this label, update status of all Gateways under found GatewayClass.
@@ -305,7 +304,7 @@ func (r *gatewayAPIReconciler) validateServiceForReconcile(obj client.Object) bo
 			r.log.Info("no Gateways found under GatewayClass", "name", gcName)
 			return false
 		}
-		return false
+		return true
 	}
 
 	nsName := utils.NamespacedName(svc)
@@ -540,7 +539,7 @@ func (r *gatewayAPIReconciler) validateObjectForReconcile(obj client.Object) boo
 			r.log.Info("no Gateways found under GatewayClass", "name", gcName)
 			return false
 		}
-		return false
+		return true
 	}
 
 	// There is no need to reconcile the object any further.
@@ -633,10 +632,6 @@ func (r *gatewayAPIReconciler) updateStatusForGatewaysUnderGatewayClass(ctx cont
 
 	if len(gateways.Items) == 0 {
 		return fmt.Errorf("no gateways found for gatewayclass: %s", gatewayClassName)
-	}
-
-	for _, gateway := range gateways.Items {
-		r.updateStatusForGateway(ctx, &gateway)
 	}
 
 	return nil
