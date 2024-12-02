@@ -34,7 +34,6 @@ The Helm chart for Envoy Gateway
 | deployment.envoyGateway.resources.limits.memory | string | `"1024Mi"` |  |
 | deployment.envoyGateway.resources.requests.cpu | string | `"100m"` |  |
 | deployment.envoyGateway.resources.requests.memory | string | `"256Mi"` |  |
-| deployment.kubeRbacProxy.image.repository | string | `"gcr.io/kubebuilder/kube-rbac-proxy"` |  |
 | deployment.kubeRbacProxy.image.tag | string | `"v0.11.0"` |  |
 | deployment.kubeRbacProxy.resources.limits.cpu | string | `"500m"` |  |
 | deployment.kubeRbacProxy.resources.limits.memory | string | `"128Mi"` |  |
@@ -54,4 +53,3 @@ The Helm chart for Envoy Gateway
 | envoyGatewayMetricsService.ports[0].protocol | string | `"TCP"` |  |
 | envoyGatewayMetricsService.ports[0].targetPort | string | `"https"` |  |
 | kubernetesClusterDomain | string | `"cluster.local"` |  |
-
