@@ -940,13 +940,15 @@ func addXdsCluster(tCtx *types.ResourceVersionTable, args *xdsClusterArgs) error
 		}
 	}
 	// Use EDS for static endpoints
-	if args.endpointType == EndpointTypeStatic {
+	switch args.endpointType {
+	case EndpointTypeStatic:
 		if err := tCtx.AddXdsResource(resourcev3.EndpointType, xdsEndpoints); err != nil {
 			return err
 		}
-	} else {
+	case EndpointTypeDNS:
 		xdsCluster.LoadAssignment = xdsEndpoints
 	}
+
 	if err := tCtx.AddXdsResource(resourcev3.ClusterType, xdsCluster); err != nil {
 		return err
 	}
