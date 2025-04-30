@@ -27,7 +27,7 @@ func (i *Infra) CreateOrUpdateProxyInfra(ctx context.Context, infra *ir.Infra) e
 		i.Namespace = infra.Proxy.Namespace
 	}
 
-	r := proxy.NewResourceRender(i.Namespace, i.DNSDomain, infra.GetProxyInfra(), i.EnvoyGateway)
+	r := proxy.NewResourceRender(i.Namespace, i.ControllerNamespace, i.DNSDomain, infra.GetProxyInfra(), i.EnvoyGateway)
 	return i.createOrUpdate(ctx, r)
 }
 
@@ -41,6 +41,6 @@ func (i *Infra) DeleteProxyInfra(ctx context.Context, infra *ir.Infra) error {
 		i.Namespace = infra.Proxy.Namespace
 	}
 
-	r := proxy.NewResourceRender(i.Namespace, i.DNSDomain, infra.GetProxyInfra(), i.EnvoyGateway)
+	r := proxy.NewResourceRender(i.Namespace, i.ControllerNamespace, i.DNSDomain, infra.GetProxyInfra(), i.EnvoyGateway)
 	return i.delete(ctx, r)
 }
