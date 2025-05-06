@@ -49,9 +49,6 @@ type ResourceRender struct {
 	// Namespace is the Namespace used for managed infra.
 	Namespace string
 
-	// ControllerNamespace is the Namespace used for Envoy Gateway controller.
-	ControllerNamespace string
-
 	// DNSDomain is the dns domain used by k8s services. Defaults to "cluster.local".
 	DNSDomain string
 
@@ -60,10 +57,9 @@ type ResourceRender struct {
 	GatewayNamespaceMode bool
 }
 
-func NewResourceRender(infraNamespace, controllerNamespace, dnsDomain string, infra *ir.ProxyInfra, gateway *egv1a1.EnvoyGateway) *ResourceRender {
+func NewResourceRender(ns, dnsDomain string, infra *ir.ProxyInfra, gateway *egv1a1.EnvoyGateway) *ResourceRender {
 	return &ResourceRender{
-		Namespace:            infraNamespace,
-		ControllerNamespace:  controllerNamespace,
+		Namespace:            ns,
 		DNSDomain:            dnsDomain,
 		infra:                infra,
 		ShutdownManager:      gateway.GetEnvoyGatewayProvider().GetEnvoyGatewayKubeProvider().ShutdownManager,
@@ -284,7 +280,7 @@ func (r *ResourceRender) Deployment() (*appsv1.Deployment, error) {
 	}
 
 	// Get expected bootstrap configurations rendered ProxyContainers
-	containers, err := expectedProxyContainers(r.infra, deploymentConfig.Container, proxyConfig.Spec.Shutdown, r.ShutdownManager, r.ControllerNamespace, r.DNSDomain, r.GatewayNamespaceMode)
+	containers, err := expectedProxyContainers(r.infra, deploymentConfig.Container, proxyConfig.Spec.Shutdown, r.ShutdownManager, r.Namespace, r.DNSDomain, r.GatewayNamespaceMode)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +325,7 @@ func (r *ResourceRender) Deployment() (*appsv1.Deployment, error) {
 					SecurityContext:               deploymentConfig.Pod.SecurityContext,
 					Affinity:                      deploymentConfig.Pod.Affinity,
 					Tolerations:                   deploymentConfig.Pod.Tolerations,
-					Volumes:                       expectedVolumes(r.infra.Name, r.GatewayNamespaceMode, deploymentConfig.Pod, r.ControllerNamespace, r.DNSDomain),
+					Volumes:                       expectedVolumes(r.infra.Name, r.GatewayNamespaceMode, deploymentConfig.Pod, r.DNSDomain),
 					ImagePullSecrets:              deploymentConfig.Pod.ImagePullSecrets,
 					NodeSelector:                  deploymentConfig.Pod.NodeSelector,
 					TopologySpreadConstraints:     deploymentConfig.Pod.TopologySpreadConstraints,
@@ -372,7 +368,7 @@ func (r *ResourceRender) DaemonSet() (*appsv1.DaemonSet, error) {
 	}
 
 	// Get expected bootstrap configurations rendered ProxyContainers
-	containers, err := expectedProxyContainers(r.infra, daemonSetConfig.Container, proxyConfig.Spec.Shutdown, r.ShutdownManager, r.ControllerNamespace, r.DNSDomain, r.GatewayNamespaceMode)
+	containers, err := expectedProxyContainers(r.infra, daemonSetConfig.Container, proxyConfig.Spec.Shutdown, r.ShutdownManager, r.Namespace, r.DNSDomain, r.GatewayNamespaceMode)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +548,7 @@ func (r *ResourceRender) getPodSpec(
 		SecurityContext:               pod.SecurityContext,
 		Affinity:                      pod.Affinity,
 		Tolerations:                   pod.Tolerations,
-		Volumes:                       expectedVolumes(r.infra.Name, r.GatewayNamespaceMode, pod, r.ControllerNamespace, r.DNSDomain),
+		Volumes:                       expectedVolumes(r.infra.Name, r.GatewayNamespaceMode, pod, r.DNSDomain),
 		ImagePullSecrets:              pod.ImagePullSecrets,
 		NodeSelector:                  pod.NodeSelector,
 		TopologySpreadConstraints:     pod.TopologySpreadConstraints,
