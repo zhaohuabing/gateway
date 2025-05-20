@@ -2,6 +2,10 @@ module github.com/envoyproxy/gateway
 
 go 1.24.2
 
+replace github.com/envoyproxy/go-control-plane => github.com/zhaohuabing/envoy-control-plane-demo v0.0.0-20250520124955-d6b0b8cf8df5
+
+replace github.com/envoyproxy/go-control-plane/envoy => github.com/zhaohuabing/envoy-control-plane-demo/envoy v0.0.0-20250520124955-d6b0b8cf8df5
+
 require (
 	fortio.org/fortio v1.69.4
 	fortio.org/log v1.17.2
