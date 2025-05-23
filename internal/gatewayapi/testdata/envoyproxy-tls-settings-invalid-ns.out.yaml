@@ -20,11 +20,9 @@ backendTLSPolicies:
         namespace: envoy-gateway
       conditions:
       - lastTransitionTime: null
-        message: 'ClientCertificateRef Secret is not located in the same namespace
-          as Envoyproxy. Secret namespace: envoy-gateway-user-ns does not match Envoyproxy
-          namespace: envoy-gateway-system.'
-        reason: Invalid
-        status: "False"
+        message: Policy has been accepted.
+        reason: Accepted
+        status: "True"
         type: Accepted
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
 gateways:
@@ -273,6 +271,10 @@ xdsIR:
       port: 10445
       routes:
       - destination:
+          metadata:
+            kind: TCPRoute
+            name: envoy-gateway
+            namespace: envoy-gateway
           name: tcproute/envoy-gateway/envoy-gateway/rule/-1
         name: tcproute/envoy-gateway/envoy-gateway
         tls:

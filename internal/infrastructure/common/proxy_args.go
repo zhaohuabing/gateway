@@ -33,6 +33,7 @@ func BuildProxyArgs(
 	if bootstrapConfigOptions != nil && bootstrapConfigOptions.IPFamily == nil {
 		bootstrapConfigOptions.IPFamily = getIPFamily(infra)
 	}
+
 	bootstrapConfigOptions.GatewayNamespaceMode = gatewayNamespaceMode
 	bootstrapConfigurations, err := bootstrap.GetRenderedBootstrapConfig(bootstrapConfigOptions)
 	if err != nil {
@@ -66,6 +67,9 @@ func BuildProxyArgs(
 
 	if componentsLogLevel := logging.GetEnvoyProxyComponentLevel(); componentsLogLevel != "" {
 		args = append(args, fmt.Sprintf("--component-log-level %s", componentsLogLevel))
+	} else {
+		// Default to error level for misc components if not set.
+		args = append(args, fmt.Sprintf("--component-log-level %s", "misc:error"))
 	}
 
 	// Default drain timeout.

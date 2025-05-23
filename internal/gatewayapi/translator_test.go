@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,12 +37,11 @@ import (
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils/field"
 	"github.com/envoyproxy/gateway/internal/utils/file"
+	"github.com/envoyproxy/gateway/internal/utils/test"
 	"github.com/envoyproxy/gateway/internal/wasm"
 )
 
-var overrideTestData = flag.Bool("override-testdata", false, "if override the test output data.")
-
-func mustUnmarshal(t *testing.T, val []byte, out interface{}) {
+func mustUnmarshal(t *testing.T, val []byte, out any) {
 	require.NoError(t, yaml.UnmarshalStrict(val, out, yaml.DisallowUnknownFields))
 }
 
@@ -70,6 +68,10 @@ func TestTranslate(t *testing.T) {
 
 	inputFiles, err := filepath.Glob(filepath.Join("testdata", "*.in.yaml"))
 	require.NoError(t, err)
+	base, err := os.ReadFile("testdata/base/base.yaml")
+	require.NoError(t, err)
+	baseResources := &resource.Resources{}
+	mustUnmarshal(t, base, baseResources)
 
 	for _, inputFile := range inputFiles {
 		t.Run(testName(inputFile), func(t *testing.T) {
@@ -78,6 +80,9 @@ func TestTranslate(t *testing.T) {
 
 			resources := &resource.Resources{}
 			mustUnmarshal(t, input, resources)
+			// Merge base resources with test resources
+			// Only secrets are in the base resources, we may have more in the future
+			resources.Secrets = append(resources.Secrets, baseResources.Secrets...)
 			envoyPatchPolicyEnabled := true
 			backendEnabled := true
 			gatewayNamespaceMode := false
@@ -326,7 +331,7 @@ func TestTranslate(t *testing.T) {
 			out, err := yaml.Marshal(got)
 			require.NoError(t, err)
 
-			if *overrideTestData {
+			if test.OverrideTestData() {
 				overrideOutputConfig(t, string(out), outputFilePath)
 			}
 
@@ -527,7 +532,7 @@ func TestTranslateWithExtensionKinds(t *testing.T) {
 			out, err := yaml.Marshal(got)
 			require.NoError(t, err)
 
-			if *overrideTestData {
+			if test.OverrideTestData() {
 				require.NoError(t, file.Write(string(out), outputFilePath))
 			}
 
@@ -875,7 +880,7 @@ func (m *mockWasmCache) Get(downloadURL string, options wasm.GetOptions) (url, c
 	if options.Checksum != "" && checksum != options.Checksum {
 		return "", "", fmt.Errorf("module downloaded from %v has checksum %v, which does not match: %v", downloadURL, checksum, options.Checksum)
 	}
-	return fmt.Sprintf("https://envoy-gateway:18002/%s.wasm", hashedName), checksum, nil
+	return fmt.Sprintf("https://envoy-gateway.envoy-gateway-system.svc.cluster.local:18002/%s.wasm", hashedName), checksum, nil
 }
 
 func (m *mockWasmCache) Cleanup() {}
@@ -895,6 +900,7 @@ func xdsWithoutEqual(a *ir.Xds) any {
 		UDP                []*ir.UDPListener
 		EnvoyPatchPolicies []*ir.EnvoyPatchPolicy
 		FilterOrder        []egv1a1.FilterPosition
+		GlobalResources    *ir.GlobalResources
 	}{
 		ReadyListener:      a.ReadyListener,
 		AccessLog:          a.AccessLog,
@@ -905,6 +911,7 @@ func xdsWithoutEqual(a *ir.Xds) any {
 		UDP:                a.UDP,
 		EnvoyPatchPolicies: a.EnvoyPatchPolicies,
 		FilterOrder:        a.FilterOrder,
+		GlobalResources:    a.GlobalResources,
 	}
 
 	// Ensure we didn't drop an exported field.
