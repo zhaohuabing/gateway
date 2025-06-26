@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -180,26 +181,52 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 					r.Logger.Error(err, "errors detected during translation")
 				}
 
+				// Do not publish IRs if there are errors from the provider layer when previous IRs exist.
+				// This allows the Envoy Proxy to continue serving traffic with the last known good state.
+				// TODO: zhaohuabing should we also skip publishing IRs if there are errors in the Gateway API translation?
+				skippedIRs := map[string]struct{}{}
+				for key := range result.XdsIR {
+					if resources.WithErrors {
+						if _, exist := r.XdsIR.Load(key); exist {
+							skippedIRs[key] = struct{}{}
+						}
+					}
+				}
+
 				// Publish the IRs.
 				// Also validate the ir before sending it.
 				for key, val := range result.InfraIR {
-					r.Logger.V(1).WithValues("infra-ir", key).Info(val.JSONString())
-					if err := val.Validate(); err != nil {
-						r.Logger.Error(err, "unable to validate infra ir, skipped sending it")
-						errChan <- err
+					// Do not delete the existing IR even if there are validation errors or errors from the provider layer.
+					// This allows the Envoy Proxy to continue serving traffic with the last known good state.
+					newIRKeys = append(newIRKeys, key)
+
+					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
+						r.Logger.V(1).WithValues("infra-ir", key).Info(val.JSONString())
+						if err := val.Validate(); err != nil {
+							r.Logger.Error(err, "unable to validate infra ir, skipped sending it")
+							errChan <- err
+						} else {
+							r.InfraIR.Store(key, val)
+						}
 					} else {
-						r.InfraIR.Store(key, val)
-						newIRKeys = append(newIRKeys, key)
+						r.Logger.Error(errors.New("skipped publishing infra ir due to errors in resources"),
+							"skipped sending infra ir", "key", key)
 					}
 				}
 
 				for key, val := range result.XdsIR {
-					r.Logger.V(1).WithValues("xds-ir", key).Info(val.JSONString())
-					if err := val.Validate(); err != nil {
-						r.Logger.Error(err, "unable to validate xds ir, skipped sending it")
-						errChan <- err
+					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
+						r.Logger.V(1).WithValues("xds-ir", key).Info(val.JSONString())
+						if err := val.Validate(); err != nil {
+							r.Logger.Error(err, "unable to validate xds ir, skipped sending it")
+							errChan <- err
+						} else {
+							r.XdsIR.Store(key, val)
+						}
 					} else {
-						r.XdsIR.Store(key, val)
+						r.Logger.Error(
+							errors.New("skipped publishing xds ir due to errors in resources, the last known good state will be used"),
+							"skipped sending xds ir", "key", key)
 					}
 				}
 
