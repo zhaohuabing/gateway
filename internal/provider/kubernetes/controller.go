@@ -390,8 +390,15 @@ func (r *gatewayAPIReconciler) Reconcile(ctx context.Context, _ reconcile.Reques
 		// Add the referenced services, ServiceImports, and EndpointSlices in
 		// the collected BackendRefs to the resourceTree.
 		// BackendRefs are referred by various Route objects and the ExtAuth in SecurityPolicies.
-		// TODO: zhaohuabing handle errors during processing of BackendRefs
-		r.processBackendRefs(ctx, gwcResource, resourceMappings)
+		if err = r.processBackendRefs(ctx, gwcResource, resourceMappings); err != nil {
+			if isTransientError(err) {
+				r.log.Error(err, "transient error processing BackendRefs", "gatewayClass", managedGC.Name)
+				return reconcile.Result{}, err
+			}
+
+			r.log.Error(err, fmt.Sprintf("failed  processBackendRefs for gatewayClass %s, skipping it", managedGC.Name))
+			errs = append(errs, err)
+		}
 
 		// For this particular Gateway, and all associated objects, check whether the
 		// namespace exists. Add to the resourceTree.
@@ -518,7 +525,11 @@ func (r *gatewayAPIReconciler) managedGatewayClasses(ctx context.Context) ([]*gw
 // - EndpointSlices
 // - Backends
 // - CACertificateRefs in the Backends
-func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResource *resource.Resources, resourceMappings *resourceMappings) {
+func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResource *resource.Resources, resourceMappings *resourceMappings) error {
+	// Only transient errors are returned from this function to allow Reconcile to retry.
+	// All other errors are just logged and ignored - these errors result in missing referenced backend resources
+	// in the resource tree, which is acceptable as the Gateway API translation layer will handle them.
+	// The Gateway API translation layer will surface these errors in the status of the resources referencing them.
 	for backendRef := range resourceMappings.allAssociatedBackendRefs {
 		backendRefKind := gatewayapi.KindDerefOr(backendRef.Kind, resource.KindService)
 		r.log.Info("processing Backend", "kind", backendRefKind, "namespace", string(*backendRef.Namespace),
@@ -530,6 +541,9 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 			service := new(corev1.Service)
 			err := r.client.Get(ctx, types.NamespacedName{Namespace: string(*backendRef.Namespace), Name: string(backendRef.Name)}, service)
 			if err != nil {
+				if isTransientError(err) {
+					return err
+				}
 				r.log.Error(err, "failed to get Service", "namespace", string(*backendRef.Namespace),
 					"name", string(backendRef.Name))
 			} else {
@@ -544,6 +558,9 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 			serviceImport := new(mcsapiv1a1.ServiceImport)
 			err := r.client.Get(ctx, types.NamespacedName{Namespace: string(*backendRef.Namespace), Name: string(backendRef.Name)}, serviceImport)
 			if err != nil {
+				if isTransientError(err) {
+					return err
+				}
 				r.log.Error(err, "failed to get ServiceImport", "namespace", string(*backendRef.Namespace),
 					"name", string(backendRef.Name))
 			} else {
@@ -562,6 +579,9 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 			backend := new(egv1a1.Backend)
 			err := r.client.Get(ctx, types.NamespacedName{Namespace: string(*backendRef.Namespace), Name: string(backendRef.Name)}, backend)
 			if err != nil {
+				if isTransientError(err) {
+					return err
+				}
 				r.log.Error(err, "failed to get Backend", "namespace", string(*backendRef.Namespace),
 					"name", string(backendRef.Name))
 			} else {
@@ -610,6 +630,9 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 								caRefNew)
 						}
 						if err != nil {
+							if isTransientError(err) {
+								return err
+							}
 							r.log.Error(err,
 								"failed to process CACertificateRef for Backend",
 								"backend", backend, "caCertificateRef", caCertRef.Name)
@@ -629,6 +652,9 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 				client.InNamespace(*backendRef.Namespace),
 			}
 			if err := r.client.List(ctx, endpointSliceList, opts...); err != nil {
+				if isTransientError(err) {
+					return err
+				}
 				r.log.Error(err, "failed to get EndpointSlices", "namespace", string(*backendRef.Namespace),
 					backendRefKind, string(backendRef.Name))
 			} else {
@@ -645,6 +671,7 @@ func (r *gatewayAPIReconciler) processBackendRefs(ctx context.Context, gwcResour
 			}
 		}
 	}
+	return nil
 }
 
 // processSecurityPolicyObjectRefs adds the referenced resources in SecurityPolicies
