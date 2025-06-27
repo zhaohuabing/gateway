@@ -1104,7 +1104,7 @@ func (r *gatewayAPIReconciler) processConfigMapRef(
 // to the resourceTree
 func (r *gatewayAPIReconciler) processBtpConfigMapRefs(
 	ctx context.Context, resourceTree *resource.Resources, resourceMap *resourceMappings,
-) {
+) error {
 	for _, policy := range resourceTree.BackendTrafficPolicies {
 		for _, ro := range policy.Spec.ResponseOverride {
 			if ro.Response.Body != nil && ro.Response.Body.ValueRef != nil && string(ro.Response.Body.ValueRef.Kind) == resource.KindConfigMap {
@@ -1120,6 +1120,10 @@ func (r *gatewayAPIReconciler) processBtpConfigMapRefs(
 				// when translating to IR because the referenced configmap can't be
 				// found.
 				if err != nil {
+					// Only transient errors are returned from this function to allow Reconcile to retry.
+					if isTransientError(err) {
+						return err
+					}
 					r.log.Error(err,
 						"failed to process ResponseOverride ValueRef for BackendTrafficPolicy",
 						"policy", policy, "ValueRef", ro.Response.Body.ValueRef.Name)
@@ -1134,6 +1138,7 @@ func (r *gatewayAPIReconciler) processBtpConfigMapRefs(
 			}
 		}
 	}
+	return nil
 }
 
 func (r *gatewayAPIReconciler) getNamespace(ctx context.Context, name string) (*corev1.Namespace, error) {
@@ -1372,8 +1377,7 @@ func (r *gatewayAPIReconciler) processBackendTrafficPolicies(ctx context.Context
 			resourceTree.BackendTrafficPolicies = append(resourceTree.BackendTrafficPolicies, &backendTrafficPolicy)
 		}
 	}
-	r.processBtpConfigMapRefs(ctx, resourceTree, resourceMap)
-	return nil
+	return r.processBtpConfigMapRefs(ctx, resourceTree, resourceMap)
 }
 
 // processSecurityPolicies adds SecurityPolicies and their referenced resources to the resourceTree
