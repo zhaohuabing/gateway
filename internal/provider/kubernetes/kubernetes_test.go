@@ -153,7 +153,7 @@ func testGatewayClassAcceptedStatus(ctx context.Context, t *testing.T, provider 
 				return true
 			}
 		}
-		fmt.Printf("GatewayClass %s not accepted yet, current conditions: %+v\n", gc.Name, gc.Status.Conditions)
+
 		return false
 	}, defaultWait, defaultTick)
 

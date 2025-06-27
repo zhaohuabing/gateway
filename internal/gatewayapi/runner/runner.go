@@ -185,8 +185,8 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 				// This allows the Envoy Proxy to continue serving traffic with the last known good state.
 				// TODO: zhaohuabing should we also skip publishing IRs if there are errors in the Gateway API translation?
 				skippedIRs := map[string]struct{}{}
-				for key := range result.XdsIR {
-					if resources.WithErrors {
+				if resources.HasErrors {
+					for key := range result.XdsIR {
 						if _, exist := r.XdsIR.Load(key); exist {
 							skippedIRs[key] = struct{}{}
 						}
