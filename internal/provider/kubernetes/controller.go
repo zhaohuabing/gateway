@@ -485,11 +485,13 @@ func (r *gatewayAPIReconciler) processEnvoyProxySecretRef(ctx context.Context, g
 			*certRef); err != nil {
 			return fmt.Errorf("failed to process EnvoyProxy SecretRef: %w", err)
 		}
+	} else {
+		// only secret is supported for ClientCertificateRef
+		return fmt.Errorf("EnvoyProxy %s/%s has unsupported ClientCertificateRef %v",
+			gwcResource.EnvoyProxyForGatewayClass.Namespace,
+			gwcResource.EnvoyProxyForGatewayClass.Name, *certRef)
 	}
-	// only secret is supported for ClientCertificateRef
-	return fmt.Errorf("EnvoyProxy %s/%s has unsupported ClientCertificateRef",
-		gwcResource.EnvoyProxyForGatewayClass.Namespace,
-		gwcResource.EnvoyProxyForGatewayClass.Name)
+	return nil
 }
 
 // managedGatewayClasses returns a list of GatewayClass objects that are managed by the Envoy Gateway Controller.
