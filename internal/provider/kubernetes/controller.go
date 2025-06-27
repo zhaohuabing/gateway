@@ -427,9 +427,9 @@ func (r *gatewayAPIReconciler) Reconcile(ctx context.Context, _ reconcile.Reques
 			}
 		}
 
-		// Set WithErrors to true if there are any non-transient errors during processing of the Gateway and Envoy Gateway resources.
+		// Set HasErrors to true if there are any non-transient errors during processing of the Gateway and Envoy Gateway resources.
 		// This will be used to determine whether the xDS cache should be updated or not.
-		gwcResource.WithErrors = (len(errs) > 0)
+		gwcResource.HasErrors = (len(errs) > 0)
 	}
 
 	// Store the Gateway Resources for the GatewayClass.
