@@ -438,7 +438,7 @@ func (r *gatewayAPIReconciler) Reconcile(ctx context.Context, _ reconcile.Reques
 				}
 
 				// Failed to add finalizer should not affect the xDS cache update.
-	            // Log the error and continue processing.
+				// Log the error and continue processing.
 				r.log.Error(err, fmt.Sprintf("failed adding finalizer to gatewayClass %s",
 					managedGC.Name))
 			}

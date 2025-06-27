@@ -203,7 +203,7 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
 						r.Logger.V(1).WithValues("infra-ir", key).Info(val.JSONString())
 						if err := val.Validate(); err != nil {
-							r.Logger.Error(err, "skipped publishing infra ir due to validation errors","key", key)
+							r.Logger.Error(err, "skipped publishing infra ir due to validation errors", "key", key)
 							errChan <- err
 						} else {
 							r.InfraIR.Store(key, val)
