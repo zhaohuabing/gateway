@@ -203,7 +203,7 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
 						r.Logger.V(1).WithValues("infra-ir", key).Info(val.JSONString())
 						if err := val.Validate(); err != nil {
-							r.Logger.Error(err, "unable to validate infra ir, skipped sending it")
+							r.Logger.Error(err, "skipped publishing infra ir due to validation errors","key", key)
 							errChan <- err
 						} else {
 							r.InfraIR.Store(key, val)
@@ -218,7 +218,7 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
 						r.Logger.V(1).WithValues("xds-ir", key).Info(val.JSONString())
 						if err := val.Validate(); err != nil {
-							r.Logger.Error(err, "unable to validate xds ir, skipped sending it")
+							r.Logger.Error(err, "skipped publishing xds ir due to validation errors", "key", key)
 							errChan <- err
 						} else {
 							r.XdsIR.Store(key, val)
@@ -230,7 +230,7 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 					}
 				}
 
-				// Update Status
+				// Update Status regardless of errors in the resources or validation.
 				for _, gateway := range result.Gateways {
 					key := utils.NamespacedName(gateway)
 					r.ProviderResources.GatewayStatuses.Store(key, &gateway.Status)
