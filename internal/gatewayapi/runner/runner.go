@@ -196,8 +196,8 @@ func (r *Runner) subscribeAndTranslate(sub <-chan watchable.Snapshot[string, *re
 				// Publish the IRs.
 				// Also validate the ir before sending it.
 				for key, val := range result.InfraIR {
-					// Do not delete the existing IR even if there are validation errors or errors from the provider layer.
-					// This allows the Envoy Proxy to continue serving traffic with the last known good state.
+					//  Preserve the existing IR even if there are validation or provider-layer errors.
+					// This ensures the Envoy Proxy can continue serving traffic using the last known good state.
 					newIRKeys = append(newIRKeys, key)
 
 					if _, shouldSkip := skippedIRs[key]; !shouldSkip {
