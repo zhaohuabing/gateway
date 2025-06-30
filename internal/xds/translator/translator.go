@@ -120,10 +120,6 @@ func (t *Translator) Translate(xdsIR *ir.Xds) (*types.ResourceVersionTable, erro
 		errs = errors.Join(errs, err)
 	}
 
-	if err := processJSONPatches(tCtx, xdsIR.EnvoyPatchPolicies); err != nil {
-		errs = errors.Join(errs, err)
-	}
-
 	if err := processClusterForAccessLog(tCtx, xdsIR.AccessLog, xdsIR.Metrics); err != nil {
 		errs = errors.Join(errs, err)
 	}
@@ -140,9 +136,14 @@ func (t *Translator) Translate(xdsIR *ir.Xds) (*types.ResourceVersionTable, erro
 		errs = errors.Join(errs, err)
 	}
 
+	// All XDS resources is ready, let's do the patch.
+	if err := processJSONPatches(tCtx, xdsIR.EnvoyPatchPolicies); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
 	// Check if an extension want to inject any clusters/secrets
 	// If no extension exists (or it doesn't subscribe to this hook) then this is a quick no-op
-	if err := processExtensionPostTranslationHook(tCtx, t.ExtensionManager); err != nil {
+	if err := processExtensionPostTranslationHook(tCtx, t.ExtensionManager, xdsIR.ExtensionServerPolicies); err != nil {
 		// If the extension server returns an error, and the extension server is not configured to fail open,
 		// then propagate the error
 		if !(*t.ExtensionManager).FailOpen() {
@@ -523,6 +524,7 @@ func (t *Translator) addRouteToRouteConfig(
 				metrics:       metrics,
 				http1Settings: httpListener.HTTP1,
 				ipFamily:      determineIPFamily(httpRoute.Destination.Settings),
+				statName:      httpRoute.Destination.StatName,
 			}
 
 			if httpRoute.Traffic != nil && httpRoute.Traffic.HTTP2 != nil {
@@ -1046,7 +1048,7 @@ func buildXdsUpstreamTLSCASecret(tlsConfig *ir.TLSUpstreamConfig) *tlsv3.Secret 
 	}
 }
 
-func buildXdsUpstreamTLSSocketWthCert(tlsConfig *ir.TLSUpstreamConfig) (*corev3.TransportSocket, error) {
+func buildValidationContext(tlsConfig *ir.TLSUpstreamConfig) *tlsv3.CommonTlsContext_CombinedValidationContext {
 	validationContext := &tlsv3.CommonTlsContext_CombinedCertificateValidationContext{
 		ValidationContextSdsSecretConfig: &tlsv3.SdsSecretConfig{
 			Name:      tlsConfig.CACertificate.Name,
@@ -1092,13 +1094,21 @@ func buildXdsUpstreamTLSSocketWthCert(tlsConfig *ir.TLSUpstreamConfig) (*corev3.
 		}
 	}
 
+	return &tlsv3.CommonTlsContext_CombinedValidationContext{
+		CombinedValidationContext: validationContext,
+	}
+}
+
+func buildXdsUpstreamTLSSocketWthCert(tlsConfig *ir.TLSUpstreamConfig) (*corev3.TransportSocket, error) {
 	tlsCtx := &tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
 			TlsCertificateSdsSecretConfigs: nil,
-			ValidationContextType: &tlsv3.CommonTlsContext_CombinedValidationContext{
-				CombinedValidationContext: validationContext,
-			},
+			ValidationContextType:          nil,
 		},
+	}
+
+	if !tlsConfig.InsecureSkipVerify {
+		tlsCtx.CommonTlsContext.ValidationContextType = buildValidationContext(tlsConfig)
 	}
 
 	if tlsConfig.SNI != nil {
