@@ -40,6 +40,8 @@ const (
 	envoyHTTPPort = int32(8080)
 	// envoyHTTPSPort is the container port number of Envoy's HTTPS endpoint.
 	envoyHTTPSPort = int32(8443)
+	// gatewayClassName is the gateway class name used in tests.
+	gatewayClassName = "envoy-gateway-class"
 )
 
 type fakeKubernetesInfraProvider struct {
@@ -69,8 +71,13 @@ func (f *fakeKubernetesInfraProvider) GetEnvoyGateway() *egv1a1.EnvoyGateway {
 }
 
 func (f *fakeKubernetesInfraProvider) GetOwnerReferenceUID(ctx context.Context, infra *ir.Infra) (map[string]types.UID, error) {
+	if f.EnvoyGateway.GatewayNamespaceMode() {
+		return map[string]types.UID{
+			gwapiresource.KindGateway: "test-owner-reference-uid-for-gateway",
+		}, nil
+	}
 	return map[string]types.UID{
-		gwapiresource.KindGateway: "test-owner-reference-uid-for-gateway",
+		gwapiresource.KindGatewayClass: "test-owner-reference-uid-for-gatewayclass",
 	}, nil
 }
 
@@ -92,8 +99,21 @@ func newTestInfraWithNamespacedName(gwNN types.NamespacedName) *ir.Infra {
 	i.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNamespaceLabel] = gwNN.Namespace
 	i.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNameLabel] = gwNN.Name
 	i.Proxy.GetProxyMetadata().OwnerReference = &ir.ResourceMetadata{
-		Kind: "Gateway",
+		Kind: gwapiresource.KindGateway,
 		Name: gwNN.Name,
+	}
+
+	return i
+}
+
+func newTestInfraWithCustomServiceAccount(gwNN types.NamespacedName) *ir.Infra {
+	i := newTestInfraWithNamespacedName(gwNN)
+	i.Proxy.Config = new(egv1a1.EnvoyProxy)
+	i.Proxy.Config.Spec.Provider = egv1a1.DefaultEnvoyProxyProvider()
+	i.Proxy.Config.Spec.Provider.Kubernetes = &egv1a1.EnvoyProxyKubernetesProvider{
+		EnvoyServiceAccount: &egv1a1.KubernetesServiceAccountSpec{
+			Name: ptr.To("custom-sa"),
+		},
 	}
 
 	return i
@@ -149,6 +169,10 @@ func newTestInfraWithAnnotationsAndLabels(annotations, labels map[string]string)
 	}
 	i.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNamespaceLabel] = "default"
 	i.Proxy.GetProxyMetadata().Labels[gatewayapi.OwningGatewayNameLabel] = i.Proxy.Name
+	i.Proxy.GetProxyMetadata().OwnerReference = &ir.ResourceMetadata{
+		Kind: gwapiresource.KindGatewayClass,
+		Name: gatewayClassName,
+	}
 	i.Proxy.Listeners = []*ir.ProxyListener{
 		{
 			Ports: []ir.ListenerPort{
@@ -618,6 +642,12 @@ func TestDeployment(t *testing.T) {
 		{
 			caseName:             "gateway-namespace-mode",
 			infra:                newTestInfraWithNamespacedName(types.NamespacedName{Namespace: "ns1", Name: "gateway-1"}),
+			deploy:               nil,
+			gatewayNamespaceMode: true,
+		},
+		{
+			caseName:             "custom-sa",
+			infra:                newTestInfraWithCustomServiceAccount(types.NamespacedName{Namespace: "ns1", Name: "gateway-1"}),
 			deploy:               nil,
 			gatewayNamespaceMode: true,
 		},
@@ -1431,6 +1461,11 @@ func TestServiceAccount(t *testing.T) {
 			infra:                newTestInfraWithNamespacedName(types.NamespacedName{Namespace: "ns1", Name: "gateway-1"}),
 			gatewayNamespaceMode: true,
 		},
+		{
+			name:                 "custom-sa",
+			infra:                newTestInfraWithCustomServiceAccount(types.NamespacedName{Namespace: "ns1", Name: "gateway-1"}),
+			gatewayNamespaceMode: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -1551,6 +1586,14 @@ func TestPDB(t *testing.T) {
 						Raw: []byte("{\"metadata\":{\"name\":\"foo\"}, \"spec\": {\"minAvailable\": 1, \"selector\": {\"matchLabels\": {\"app\": \"bar\"}}}}"),
 					},
 				},
+			},
+		},
+		{
+			caseName: "with-name",
+			infra:    newTestInfra(),
+			pdb: &egv1a1.KubernetesPodDisruptionBudgetSpec{
+				MinAvailable: ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1}),
+				Name:         ptr.To("custom-pdb-name"),
 			},
 		},
 		{
@@ -1693,6 +1736,14 @@ func TestHorizontalPodAutoscaler(t *testing.T) {
 			},
 			deploy: &egv1a1.KubernetesDeploymentSpec{
 				Name: ptr.To("custom-deployment-name"),
+			},
+		},
+		{
+			caseName: "with-name",
+			infra:    newTestInfra(),
+			hpa: &egv1a1.KubernetesHorizontalPodAutoscalerSpec{
+				MaxReplicas: ptr.To[int32](1),
+				Name:        ptr.To("custom-hpa-name"),
 			},
 		},
 		{

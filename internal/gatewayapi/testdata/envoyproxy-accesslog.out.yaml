@@ -151,6 +151,9 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
+        ownerReference:
+          kind: GatewayClass
+          name: envoy-gateway-class
       name: envoy-gateway/gateway-1
       namespace: envoy-gateway-system
 xdsIR:
@@ -217,7 +220,8 @@ xdsIR:
             namespace: envoy-gateway-system
           name: accesslog_otel_0_3
           settings:
-          - endpoints:
+          - addressType: FQDN
+            endpoints:
             - host: otel-collector.monitoring.svc.cluster.local
               port: 4317
             name: accesslog_otel_0_3/backend/-1

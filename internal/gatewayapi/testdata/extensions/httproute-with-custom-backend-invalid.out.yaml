@@ -56,14 +56,10 @@ httpRoutes:
       sectionName: http
     rules:
     - backendRefs:
-      - name: service-1
-        port: 8080
-      filters:
-      - extensionRef:
-          group: foo.example.io
-          kind: Foo
-          name: test
-        type: ExtensionRef
+      - group: storage.example.io
+        kind: UnsupportedBackend
+        name: unsupported-backend
+        port: 443
       matches:
       - path:
           value: /
@@ -71,15 +67,16 @@ httpRoutes:
     parents:
     - conditions:
       - lastTransitionTime: null
-        message: 'Unable to translate APIVersion for Extension Filter: kind: Foo,
-          default/test'
-        reason: UnsupportedValue
-        status: "False"
+        message: Route is accepted
+        reason: Accepted
+        status: "True"
         type: Accepted
       - lastTransitionTime: null
-        message: 'Unable to translate APIVersion for Extension Filter: kind: Foo,
-          default/test'
-        reason: BackendNotFound
+        message: 'Failed to process route rule 0 backendRef 0: Group is invalid, only
+          the core API group (specified by omitting the group field or setting it
+          to an empty string), multicluster.x-k8s.io and gateway.envoyproxy.io are
+          supported.'
+        reason: InvalidKind
         status: "False"
         type: ResolvedRefs
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
@@ -102,6 +99,9 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway
+        ownerReference:
+          kind: GatewayClass
+          name: envoy-gateway-class
       name: envoy-gateway/gateway-1
       namespace: ""
 xdsIR:
@@ -124,6 +124,20 @@ xdsIR:
         escapedSlashesAction: UnescapeAndRedirect
         mergeSlashes: true
       port: 10080
+      routes:
+      - directResponse:
+          statusCode: 500
+        hostname: gateway.envoyproxy.io
+        isHTTP2: false
+        metadata:
+          kind: HTTPRoute
+          name: httproute-1
+          namespace: default
+        name: httproute/default/httproute-1/rule/0/match/0/gateway_envoyproxy_io
+        pathMatch:
+          distinct: false
+          name: ""
+          prefix: /
     readyListener:
       address: 0.0.0.0
       ipFamily: IPv4
