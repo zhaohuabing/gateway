@@ -18,6 +18,7 @@ import (
 	routeV3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	tlsV3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -121,6 +122,57 @@ func (t *testingExtensionServer) PostVirtualHostModify(_ context.Context, req *p
 	}, nil
 }
 
+// PostClusterModifyHook modifies clusters for custom backend support
+func (t *testingExtensionServer) PostClusterModify(_ context.Context, req *pb.PostClusterModifyRequest) (*pb.PostClusterModifyResponse, error) {
+	// Clone the cluster to avoid modifying the original
+	modifiedCluster := proto.Clone(req.Cluster).(*clusterV3.Cluster)
+	var poolCount int
+	// Check if this cluster should be modified based on extension resources
+	for _, extensionResourceBytes := range req.PostClusterContext.BackendExtensionResources {
+		if poolCount == 1 {
+			return &pb.PostClusterModifyResponse{
+				Cluster: req.Cluster,
+			}, errors.New("inference pool only support one per rule")
+		}
+
+		extensionResource := unstructured.Unstructured{}
+		if err := extensionResource.UnmarshalJSON(extensionResourceBytes.UnstructuredBytes); err != nil {
+			return &pb.PostClusterModifyResponse{
+				Cluster: req.Cluster,
+			}, err
+		}
+
+		if extensionResource.GetKind() == "InferencePool" {
+			extensionSpec := extensionResource.Object["spec"].(map[string]any)
+			targetPortNumber := int(extensionSpec["targetPortNumber"].(int64))
+			if targetPortNumber == 0 {
+				return &pb.PostClusterModifyResponse{
+					Cluster: req.Cluster,
+				}, errors.New("inference pool target port number is 0")
+			}
+
+			modifiedCluster.ClusterDiscoveryType = &clusterV3.Cluster_Type{Type: clusterV3.Cluster_LOGICAL_DNS}
+			modifiedCluster.LbConfig = &clusterV3.Cluster_OriginalDstLbConfig_{
+				OriginalDstLbConfig: &clusterV3.Cluster_OriginalDstLbConfig{
+					UseHttpHeader:  true,
+					HttpHeaderName: "x-gateway-destination-endpoint",
+				},
+			}
+
+			modifiedCluster.EdsClusterConfig = nil
+			modifiedCluster.LoadAssignment = nil
+			modifiedCluster.LbPolicy = clusterV3.Cluster_CLUSTER_PROVIDED
+			modifiedCluster.CommonLbConfig = nil
+			modifiedCluster.ClusterDiscoveryType = &clusterV3.Cluster_Type{Type: clusterV3.Cluster_ORIGINAL_DST}
+			poolCount++
+		}
+	}
+
+	return &pb.PostClusterModifyResponse{
+		Cluster: modifiedCluster,
+	}, nil
+}
+
 // PostHTTPListenerModifyHook returns a modified version of the listener with a changed statprefix of the listener
 // A more useful use-case for an extension would be looping through the FilterChains to find the
 // HTTPConnectionManager(s) and inject a custom HTTPFilter, but that for testing purposes we don't need to make a complex change
@@ -210,6 +262,12 @@ func (t *testingExtensionServer) PostHTTPListenerModify(_ context.Context, req *
 // PostTranslateModifyHook inserts and overrides some clusters/secrets
 func (t *testingExtensionServer) PostTranslateModify(_ context.Context, req *pb.PostTranslateModifyRequest) (*pb.PostTranslateModifyResponse, error) {
 	for _, cluster := range req.Clusters {
+		if cluster.Name == "custom-backend-dest" {
+			return &pb.PostTranslateModifyResponse{
+				Clusters: req.Clusters,
+				Secrets:  req.Secrets,
+			}, nil
+		}
 		// This simulates an extension server that returns an error. It allows verifying that fail-close is working.
 		if edsConfig := cluster.GetEdsClusterConfig(); edsConfig != nil {
 			if strings.Contains(edsConfig.ServiceName, "fail-close-error") {
@@ -264,6 +322,65 @@ func (t *testingExtensionServer) PostTranslateModify(_ context.Context, req *pb.
 		},
 	})
 
+	for _, extensionResourceBytes := range req.PostTranslateContext.ExtensionResources {
+		extensionResource := unstructured.Unstructured{}
+		if err := extensionResource.UnmarshalJSON(extensionResourceBytes.UnstructuredBytes); err != nil {
+			return response, err
+		}
+
+		targetKind, err := getTargetRefKind(&extensionResource)
+		if err != nil {
+			return response, fmt.Errorf("failed to get targetRef kind: %w", err)
+		}
+
+		if extensionResource.GetObjectKind().GroupVersionKind().Kind == "ExampleExtPolicy" && targetKind == "Gateway" {
+			upstreamTLS := &tlsV3.UpstreamTlsContext{
+				CommonTlsContext: &tlsV3.CommonTlsContext{
+					TlsCertificateSdsSecretConfigs: []*tlsV3.SdsSecretConfig{
+						{
+							Name: "default",
+							SdsConfig: &coreV3.ConfigSource{
+								ConfigSourceSpecifier: &coreV3.ConfigSource_ApiConfigSource{
+									ApiConfigSource: &coreV3.ApiConfigSource{
+										ApiType: coreV3.ApiConfigSource_GRPC,
+										GrpcServices: []*coreV3.GrpcService{
+											{
+												TargetSpecifier: &coreV3.GrpcService_EnvoyGrpc_{
+													EnvoyGrpc: &coreV3.GrpcService_EnvoyGrpc{
+														ClusterName: "sds-cluster",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			typedConfig, err := anypb.New(upstreamTLS)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, cluster := range response.Clusters {
+				if cluster.Name == "mock-extension-injected-cluster" {
+					cluster.TransportSocket = &coreV3.TransportSocket{
+						Name: "envoy.transport_sockets.tls",
+						ConfigType: &coreV3.TransportSocket_TypedConfig{
+							TypedConfig: typedConfig,
+						},
+					}
+				}
+			}
+		} else if extensionResource.GetObjectKind().GroupVersionKind().Kind == "ExampleExtPolicy" && targetKind != "Gateway" {
+			// This simulates an extension server that returns an error. It allows verifying that fail-close is working.
+			return response, fmt.Errorf("invalid extension policy : %s", extensionResource.GetName())
+		}
+	}
+
 	for idx, secret := range req.Secrets {
 		response.Secrets[idx] = proto.Clone(secret).(*tlsV3.Secret)
 	}
@@ -281,4 +398,18 @@ func (t *testingExtensionServer) PostTranslateModify(_ context.Context, req *pb.
 	})
 
 	return response, nil
+}
+
+func getTargetRefKind(obj *unstructured.Unstructured) (string, error) {
+	targetRef, found, err := unstructured.NestedMap(obj.Object, "spec", "targetRef")
+	if err != nil || !found {
+		return "", errors.New("targetRef not found or error")
+	}
+
+	kind, ok := targetRef["kind"].(string)
+	if !ok {
+		return "", errors.New("kind is not a string or missing in targetRef")
+	}
+
+	return kind, nil
 }

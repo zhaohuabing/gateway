@@ -66,6 +66,42 @@ func processExtensionPostRouteHook(route *routev3.Route, vHost *routev3.VirtualH
 	return nil
 }
 
+func processExtensionPostClusterHook(cluster *clusterv3.Cluster, extensionResources []*unstructured.Unstructured, em *extensionTypes.Manager) error {
+	// Do nothing unless there is an extension manager and there are extension resources
+	if em == nil || len(extensionResources) == 0 {
+		return nil
+	}
+
+	// Check if an extension want to modify the cluster for custom backends
+	extManager := *em
+	extClusterHookClient, err := extManager.GetPostXDSHookClient(egv1a1.XDSCluster)
+	if err != nil {
+		return err
+	}
+	if extClusterHookClient == nil {
+		return nil
+	}
+
+	modifiedCluster, err := extClusterHookClient.PostClusterModifyHook(
+		cluster,
+		extensionResources,
+	)
+	if err != nil {
+		// Maybe logging the error is better here, but this only happens when an extension is in-use
+		// so if modification fails then we should probably treat that as a serious problem.
+		return err
+	}
+
+	// If the extension returned a modified cluster, then copy its to the one that was passed in as a reference
+	if modifiedCluster != nil {
+		if err = deepCopyPtr(modifiedCluster, cluster); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func processExtensionPostVHostHook(vHost *routev3.VirtualHost, em *extensionTypes.Manager) error {
 	// Do nothing unless there is an extension manager
 	if em == nil {
@@ -139,7 +175,7 @@ func processExtensionPostListenerHook(tCtx *types.ResourceVersionTable, xdsListe
 	return nil
 }
 
-func processExtensionPostTranslationHook(tCtx *types.ResourceVersionTable, em *extensionTypes.Manager) error {
+func processExtensionPostTranslationHook(tCtx *types.ResourceVersionTable, em *extensionTypes.Manager, policies []*ir.UnstructuredRef) error {
 	// Do nothing unless there is an extension manager
 	if em == nil {
 		return nil
@@ -169,7 +205,7 @@ func processExtensionPostTranslationHook(tCtx *types.ResourceVersionTable, em *e
 		oldSecrets[idx] = secret.(*tlsv3.Secret)
 	}
 
-	newClusters, newSecrets, err := extensionInsertHookClient.PostTranslateModifyHook(oldClusters, oldSecrets)
+	newClusters, newSecrets, err := extensionInsertHookClient.PostTranslateModifyHook(oldClusters, oldSecrets, policies)
 	if err != nil {
 		return err
 	}

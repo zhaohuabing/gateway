@@ -112,7 +112,9 @@ envoyExtensionPolicies:
       - name: grpc-backend
         namespace: envoy-gateway
         port: 8000
-      - name: grpc-backend-2
+      - group: multicluster.x-k8s.io
+        kind: ServiceImport
+        name: grpc-backend-2
         port: 9000
       - group: gateway.envoyproxy.io
         kind: Backend
@@ -273,6 +275,9 @@ infraIR:
         labels:
           gateway.envoyproxy.io/owning-gateway-name: gateway-1
           gateway.envoyproxy.io/owning-gateway-namespace: default
+        ownerReference:
+          kind: GatewayClass
+          name: envoy-gateway-class
       name: default/gateway-1
       namespace: envoy-gateway-system
 xdsIR:
@@ -344,7 +349,7 @@ xdsIR:
                 - host: 8.8.8.8
                   port: 9000
                 metadata:
-                  kind: Service
+                  kind: ServiceImport
                   name: grpc-backend-2
                   namespace: default
                   sectionName: "9000"
