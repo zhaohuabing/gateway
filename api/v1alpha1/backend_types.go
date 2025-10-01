@@ -205,11 +205,10 @@ type BackendTLSSettings struct {
 	// +optional
 	InsecureSkipVerify *bool `json:"insecureSkipVerify,omitempty"`
 
-	// ClientTLS defines the client-side TLS identity and settings Envoy should use
-	// when initiating TLS connections to this backend. This allows configuring the
-	// client certificate/key as well as TLS protocol parameters such as ciphers,
-	// TLS versions, and ALPN. When omitted, Envoy will fall back to the
-	// EnvoyProxy BackendTLS defaults, if any.
+	// ClientTLS defines the client TLS settings that Envoy will use when initiating
+	// TLS connections to this backend. This allows configuring the client certificate/key
+	// as well as TLS protocol parameters such as ciphers, TLS versions, and ALPN.
+	// When omitted, Envoy will fall back to the EnvoyProxy BackendTLS defaults, if any.
 	//
 	// +optional
 	ClientTLS *BackendTLSConfig `json:"clientTLS,omitempty"`
