@@ -434,6 +434,7 @@ _Appears in:_
 BackendTLSConfig describes the BackendTLS configuration for Envoy Proxy.
 
 _Appears in:_
+- [BackendTLSSettings](#backendtlssettings)
 - [EnvoyProxySpec](#envoyproxyspec)
 
 | Field | Type | Required | Default | Description |
@@ -461,6 +462,7 @@ _Appears in:_
 | `caCertificateRefs` | _LocalObjectReference array_ |  false  |  | CACertificateRefs contains one or more references to Kubernetes objects that<br />contain TLS certificates of the Certificate Authorities that can be used<br />as a trust anchor to validate the certificates presented by the backend.<br />A single reference to a Kubernetes ConfigMap or a Kubernetes Secret,<br />with the CA certificate in a key named `ca.crt` is currently supported.<br />If CACertificateRefs is empty or unspecified, then WellKnownCACertificates must be<br />specified. Only one of CACertificateRefs or WellKnownCACertificates may be specified,<br />not both. |
 | `wellKnownCACertificates` | _[WellKnownCACertificatesType](#wellknowncacertificatestype)_ |  false  |  | WellKnownCACertificates specifies whether system CA certificates may be used in<br />the TLS handshake between the gateway and backend pod.<br />If WellKnownCACertificates is unspecified or empty (""), then CACertificateRefs<br />must be specified with at least one entry for a valid configuration. Only one of<br />CACertificateRefs or WellKnownCACertificates may be specified, not both. |
 | `insecureSkipVerify` | _boolean_ |  false  | false | InsecureSkipVerify indicates whether the upstream's certificate verification<br />should be skipped. Defaults to "false". |
+| `clientTLS` | _[BackendTLSConfig](#backendtlsconfig)_ |  false  |  | ClientTLS defines the client-side TLS identity and settings Envoy should use<br />when initiating TLS connections to this backend. This allows configuring the<br />client certificate/key as well as TLS protocol parameters such as ciphers,<br />TLS versions, and ALPN. When omitted, Envoy will fall back to the<br />EnvoyProxy BackendTLS defaults, if any. |
 
 
 #### BackendTelemetry
