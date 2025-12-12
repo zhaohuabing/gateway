@@ -24,6 +24,7 @@
               namespace: default
       name: httproute/default/httproute-1/rule/0/match/0/gateway_envoyproxy_io
       route:
+        appendXForwardedHost: true
         cluster: httproute/default/httproute-1/rule/0
         upgradeConfigs:
         - upgradeType: websocket
@@ -42,6 +43,7 @@
               namespace: default
       name: httproute/default/httproute-1/rule/1/match/0/gateway_envoyproxy_io
       route:
+        appendXForwardedHost: true
         cluster: httproute/default/httproute-1/rule/1
         upgradeConfigs:
         - upgradeType: websocket
@@ -60,6 +62,7 @@
               namespace: default
       name: httproute/default/httproute-2/rule/0/match/0/gateway_envoyproxy_io
       route:
+        appendXForwardedHost: true
         cluster: httproute/default/httproute-2/rule/0
         upgradeConfigs:
         - upgradeType: websocket
@@ -78,6 +81,7 @@
               namespace: default
       name: httproute/default/httproute-2/rule/1/match/0/gateway_envoyproxy_io
       route:
+        appendXForwardedHost: true
         cluster: httproute/default/httproute-2/rule/1
         upgradeConfigs:
         - upgradeType: websocket
