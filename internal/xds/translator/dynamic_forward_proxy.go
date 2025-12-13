@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"sort"
 
+	rbacconfigv3 "github.com/envoyproxy/go-control-plane/envoy/config/rbac/v3"
 	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	commondfpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/dynamic_forward_proxy/v3"
 	dfpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/dynamic_forward_proxy/v3"
+	rbacv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/rbac/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	envoymatcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
@@ -37,6 +40,17 @@ func (*dynamicForwardProxy) patchHCM(mgr *hcmv3.HttpConnectionManager, irListene
 
 	if irListener == nil {
 		return errors.New("ir listener is nil")
+	}
+
+	// Add the RBAC filter once (no-op by default); per-route config will enable it only for DFP routes.
+	if listenerHasDynamicResolverRoute(irListener) {
+		loopbackRBAC, err := buildDynamicForwardProxyLoopbackRBAC()
+		if err != nil {
+			return err
+		}
+		if !hcmContainsFilter(mgr, loopbackRBAC.Name) {
+			mgr.HttpFilters = append([]*hcmv3.HttpFilter{loopbackRBAC}, mgr.HttpFilters...)
+		}
 	}
 
 	if !listenerRequireDFP(irListener) {
@@ -89,6 +103,21 @@ func (*dynamicForwardProxy) patchRoute(route *routev3.Route, irRoute *ir.HTTPRou
 		return errors.New("ir route is nil")
 	}
 
+	if irRoute.IsDynamicResolverRoute() {
+		rbacPerRouteCfg, err := buildDynamicForwardProxyLoopbackRBACPerRoute(irRoute)
+		if err != nil {
+			return err
+		}
+		rbacAny, err := anypb.New(rbacPerRouteCfg)
+		if err != nil {
+			return err
+		}
+		if route.TypedPerFilterConfig == nil {
+			route.TypedPerFilterConfig = make(map[string]*anypb.Any)
+		}
+		route.TypedPerFilterConfig[dynamicForwardProxyLoopbackRBACFilterName()] = rbacAny
+	}
+
 	if !routeRequireDFP(irRoute) {
 		return nil
 	}
@@ -119,6 +148,16 @@ func (*dynamicForwardProxy) patchResources(_ *types.ResourceVersionTable, _ []*i
 func listenerRequireDFP(listener *ir.HTTPListener) bool {
 	for _, route := range listener.Routes {
 		if routeRequireDFP(route) {
+			return true
+		}
+	}
+	return false
+}
+
+// listenerHasDynamicResolverRoute checks if a given listener has any route with a dynamic resolver backend.
+func listenerHasDynamicResolverRoute(listener *ir.HTTPListener) bool {
+	for _, route := range listener.Routes {
+		if route.IsDynamicResolverRoute() {
 			return true
 		}
 	}
@@ -214,4 +253,80 @@ func routeDNS(route *ir.HTTPRoute) *ir.DNS {
 
 func dynamicForwardProxyFilterName(cacheName string) string {
 	return fmt.Sprintf("%s.%s", string(egv1a1.EnvoyFilterDynamicForwardProxy), cacheName)
+}
+
+func dynamicForwardProxyLoopbackRBACFilterName() string {
+	return "envoy.filters.http.rbac.dfp_loopback_deny"
+}
+
+func buildDynamicForwardProxyLoopbackRBAC() (*hcmv3.HttpFilter, error) {
+	rbac := &rbacv3.RBAC{
+		// No policies: acts as a placeholder; per-route config enables denial.
+		Rules: &rbacconfigv3.RBAC{},
+	}
+
+	rbacAny, err := anypb.New(rbac)
+	if err != nil {
+		return nil, err
+	}
+
+	return &hcmv3.HttpFilter{
+		Name: dynamicForwardProxyLoopbackRBACFilterName(),
+		ConfigType: &hcmv3.HttpFilter_TypedConfig{
+			TypedConfig: rbacAny,
+		},
+	}, nil
+}
+
+func buildDynamicForwardProxyLoopbackRBACPerRoute(irRoute *ir.HTTPRoute) (*rbacv3.RBACPerRoute, error) {
+	loopbackHeaders := []string{":authority", "host"}
+	loopbackPatterns := []string{`^127\.0\.0\.1(?::\d+)?$`, `^localhost(?::\d+)?$`}
+
+	permissions := make([]*rbacconfigv3.Permission, 0, len(loopbackHeaders)*len(loopbackPatterns))
+	for _, headerName := range loopbackHeaders {
+		for _, pattern := range loopbackPatterns {
+			permissions = append(permissions, buildHeaderPermissionRegex(headerName, pattern))
+		}
+	}
+
+	if irRoute.URLRewrite != nil && irRoute.URLRewrite.Host != nil && irRoute.URLRewrite.Host.Header != nil {
+		for _, pattern := range loopbackPatterns {
+			permissions = append(permissions, buildHeaderPermissionRegex(*irRoute.URLRewrite.Host.Header, pattern))
+		}
+	}
+
+	return &rbacv3.RBACPerRoute{
+		Rbac: &rbacv3.RBAC{
+			Rules: &rbacconfigv3.RBAC{
+				Action: rbacconfigv3.RBAC_DENY,
+				Policies: map[string]*rbacconfigv3.Policy{
+					"deny-loopback-host": {
+						Permissions: permissions,
+						Principals: []*rbacconfigv3.Principal{
+							{
+								Identifier: &rbacconfigv3.Principal_Any{
+									Any: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func buildHeaderPermissionRegex(name, pattern string) *rbacconfigv3.Permission {
+	return &rbacconfigv3.Permission{
+		Rule: &rbacconfigv3.Permission_Header{
+			Header: &routev3.HeaderMatcher{
+				Name: name,
+				HeaderMatchSpecifier: &routev3.HeaderMatcher_SafeRegexMatch{
+					SafeRegexMatch: &envoymatcherv3.RegexMatcher{
+						Regex: pattern,
+					},
+				},
+			},
+		},
+	}
 }

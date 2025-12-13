@@ -32,6 +32,40 @@
         envoy.filters.http.dynamic_forward_proxy.envoy-gateway-dfp-cache-v4_preferred-30000ms:
           '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
           hostRewriteHeader: x-dynamic-host-header-1
+        envoy.filters.http.rbac.dfp_loopback_deny:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBACPerRoute
+          rbac:
+            rules:
+              action: DENY
+              policies:
+                deny-loopback-host:
+                  permissions:
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-1
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-1
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  principals:
+                  - any: true
     - match:
         pathSeparatedPrefix: /bar
       metadata:
@@ -51,6 +85,40 @@
         envoy.filters.http.dynamic_forward_proxy.envoy-gateway-dfp-cache-v4_preferred-30000ms:
           '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
           hostRewriteHeader: x-dynamic-host-header-2
+        envoy.filters.http.rbac.dfp_loopback_deny:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBACPerRoute
+          rbac:
+            rules:
+              action: DENY
+              policies:
+                deny-loopback-host:
+                  permissions:
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-2
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-2
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  principals:
+                  - any: true
     - match:
         pathSeparatedPrefix: /baz
       metadata:
@@ -70,6 +138,40 @@
         envoy.filters.http.dynamic_forward_proxy.envoy-gateway-dfp-cache-all-1000ms:
           '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
           hostRewriteHeader: x-dynamic-host-header-3
+        envoy.filters.http.rbac.dfp_loopback_deny:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBACPerRoute
+          rbac:
+            rules:
+              action: DENY
+              policies:
+                deny-loopback-host:
+                  permissions:
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-3
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: x-dynamic-host-header-3
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  principals:
+                  - any: true
     - match:
         pathSeparatedPrefix: /qux
       metadata:
@@ -89,3 +191,29 @@
         envoy.filters.http.dynamic_forward_proxy.envoy-gateway-dfp-cache-all-1000ms:
           '@type': type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
           hostRewriteLiteral: rewrite.com
+        envoy.filters.http.rbac.dfp_loopback_deny:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBACPerRoute
+          rbac:
+            rules:
+              action: DENY
+              policies:
+                deny-loopback-host:
+                  permissions:
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: :authority
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^127\.0\.0\.1(?::\d+)?$
+                  - header:
+                      name: host
+                      safeRegexMatch:
+                        regex: ^localhost(?::\d+)?$
+                  principals:
+                  - any: true
