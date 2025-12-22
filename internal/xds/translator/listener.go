@@ -25,6 +25,7 @@ import (
 	preservecasev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/header_formatters/preserve_case/v3"
 	customheaderv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/original_ip_detection/custom_header/v3"
 	xffv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/original_ip_detection/xff/v3"
+	networkinput "github.com/envoyproxy/go-control-plane/envoy/extensions/matching/common_inputs/network/v3"
 	quicv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/quic/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
@@ -481,7 +482,7 @@ func (t *Translator) addHCMToXDSListener(
 		filterChain.TransportSocket = tSocket
 		filterChain.Name = httpsListenerFilterChainName(irListener)
 
-		if err := addServerNamesMatch(xdsListener, filterChain, irListener.Hostnames); err != nil {
+		if err := addServerNamesMatch(xdsListener, filterChain, irListener.Hostnames, true); err != nil {
 			return err
 		}
 
@@ -557,7 +558,7 @@ func buildEarlyHeaderMutation(headers *ir.HeaderSettings) []*corev3.TypedExtensi
 	}
 }
 
-func addServerNamesMatch(xdsListener *listenerv3.Listener, filterChain *listenerv3.FilterChain, hostnames []string) error {
+func addServerNamesMatch(xdsListener *listenerv3.Listener, filterChain *listenerv3.FilterChain, hostnames []string, useMatcher bool) error {
 	// Skip adding ServerNames match for:
 	// 1. nil listeners
 	// 2. UDP (QUIC) listeners used for HTTP3
@@ -569,18 +570,89 @@ func addServerNamesMatch(xdsListener *listenerv3.Listener, filterChain *listener
 		return nil
 	}
 
-	// Dont add a filter chain match if the hostname is a wildcard character.
-	if len(hostnames) > 0 && hostnames[0] != "*" {
+	if len(hostnames) == 0 || hostnames[0] == "*" {
+		return nil
+	}
+
+	if !useMatcher {
 		filterChain.FilterChainMatch = &listenerv3.FilterChainMatch{
 			ServerNames: hostnames,
 		}
+		return addXdsTLSInspectorFilter(xdsListener)
+	}
 
-		if err := addXdsTLSInspectorFilter(xdsListener); err != nil {
-			return err
+	if filterChain.Name == "" {
+		filterChain.Name = hostnames[0]
+	}
+
+	matchMap, err := ensureServerNameFilterChainMatcher(xdsListener)
+	if err != nil {
+		return err
+	}
+
+	for _, hostname := range hostnames {
+		matchMap.Map[hostname] = filterChainOnMatch(filterChain.Name)
+	}
+
+	return addXdsTLSInspectorFilter(xdsListener)
+}
+
+func ensureServerNameFilterChainMatcher(xdsListener *listenerv3.Listener) (*matcher.Matcher_MatcherTree_MatchMap, error) {
+	if xdsListener.FilterChainMatcher == nil {
+		serverNameInput, err := proto.ToAnyWithValidation(&networkinput.ServerNameInput{})
+		if err != nil {
+			return nil, err
+		}
+
+		xdsListener.FilterChainMatcher = &matcher.Matcher{
+			MatcherType: &matcher.Matcher_MatcherTree_{
+				MatcherTree: &matcher.Matcher_MatcherTree{
+					Input: &xdscore.TypedExtensionConfig{
+						Name:        "envoy.matching.inputs.server_name",
+						TypedConfig: serverNameInput,
+					},
+					TreeType: &matcher.Matcher_MatcherTree_ExactMatchMap{
+						ExactMatchMap: &matcher.Matcher_MatcherTree_MatchMap{
+							Map: map[string]*matcher.Matcher_OnMatch{},
+						},
+					},
+				},
+			},
 		}
 	}
 
-	return nil
+	tree := xdsListener.FilterChainMatcher.GetMatcherTree()
+	if tree == nil {
+		return nil, errors.New("filter chain matcher missing matcher tree")
+	}
+
+	matchMap := tree.GetExactMatchMap()
+	if matchMap == nil {
+		matchMap = &matcher.Matcher_MatcherTree_MatchMap{
+			Map: map[string]*matcher.Matcher_OnMatch{},
+		}
+		tree.TreeType = &matcher.Matcher_MatcherTree_ExactMatchMap{
+			ExactMatchMap: matchMap,
+		}
+	}
+
+	if matchMap.Map == nil {
+		matchMap.Map = map[string]*matcher.Matcher_OnMatch{}
+	}
+
+	return matchMap, nil
+}
+
+func filterChainOnMatch(filterChainName string) *matcher.Matcher_OnMatch {
+	typedConfig, _ := anypb.New(wrapperspb.String(filterChainName))
+	return &matcher.Matcher_OnMatch{
+		OnMatch: &matcher.Matcher_OnMatch_Action{
+			Action: &xdscore.TypedExtensionConfig{
+				Name:        filterChainName,
+				TypedConfig: typedConfig,
+			},
+		},
+	}
 }
 
 // findXdsHTTPRouteConfigName finds the name of the route config associated with the
@@ -657,7 +729,7 @@ func (t *Translator) addXdsTCPFilterChain(
 	}
 
 	if isTLSPassthrough {
-		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs); err != nil {
+		if err := addServerNamesMatch(xdsListener, filterChain, irRoute.TLS.TLSInspectorConfig.SNIs, true); err != nil {
 			return err
 		}
 	}
@@ -667,7 +739,7 @@ func (t *Translator) addXdsTCPFilterChain(
 		if cfg := irRoute.TLS.TLSInspectorConfig; cfg != nil {
 			snis = cfg.SNIs
 		}
-		if err := addServerNamesMatch(xdsListener, filterChain, snis); err != nil {
+		if err := addServerNamesMatch(xdsListener, filterChain, snis, true); err != nil {
 			return err
 		}
 		tSocket, err := buildXdsDownstreamTLSSocket(irRoute.TLS.Terminate)

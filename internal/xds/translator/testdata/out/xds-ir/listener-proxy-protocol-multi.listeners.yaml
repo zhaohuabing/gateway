@@ -2,12 +2,28 @@
     socketAddress:
       address: '::'
       portValue: 10080
+  filterChainMatcher:
+    matcherTree:
+      exactMatchMap:
+        map:
+          bar.com:
+            action:
+              name: listener
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: listener
+          foo.com:
+            action:
+              name: listener
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: listener
+      input:
+        name: envoy.matching.inputs.server_name
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.ServerNameInput
   filterChains:
-  - filterChainMatch:
-      serverNames:
-      - foo.com
-      - bar.com
-    filters:
+  - filters:
     - name: envoy.filters.network.http_connection_manager
       typedConfig:
         '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager

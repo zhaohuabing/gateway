@@ -2,11 +2,28 @@
     socketAddress:
       address: '::'
       portValue: 10080
+  filterChainMatcher:
+    matcherTree:
+      exactMatchMap:
+        map:
+          foo.com:
+            action:
+              name: first-listener-error
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: first-listener-error
+          foo.net:
+            action:
+              name: second-listener
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: second-listener
+      input:
+        name: envoy.matching.inputs.server_name
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.ServerNameInput
   filterChains:
-  - filterChainMatch:
-      serverNames:
-      - foo.com
-    filters:
+  - filters:
     - name: envoy.filters.network.http_connection_manager
       typedConfig:
         '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
@@ -48,10 +65,7 @@
               resourceApiVersion: V3
         disableStatefulSessionResumption: true
         disableStatelessSessionResumption: true
-  - filterChainMatch:
-      serverNames:
-      - foo.net
-    filters:
+  - filters:
     - name: envoy.filters.network.http_connection_manager
       typedConfig:
         '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager

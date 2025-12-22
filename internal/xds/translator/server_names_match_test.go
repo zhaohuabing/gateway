@@ -19,17 +19,17 @@ func TestAddServerNamesMatch(t *testing.T) {
 		name               string
 		xdsListener        *listenerv3.Listener
 		hostnames          []string
-		expectFilterChain  bool
+		expectMatcher      bool
+		expectOnNoMatch    string
+		expectMatchEntries map[string]string
 		expectTLSInspector bool
-		expectServerNames  []string
 	}{
 		{
 			name:               "nil listener",
 			xdsListener:        nil,
 			hostnames:          []string{"example.com"},
-			expectFilterChain:  false,
+			expectMatcher:      false,
 			expectTLSInspector: false,
-			expectServerNames:  nil,
 		},
 		{
 			name: "UDP (QUIC) listener for HTTP3",
@@ -47,9 +47,8 @@ func TestAddServerNamesMatch(t *testing.T) {
 				},
 			},
 			hostnames:          []string{"example.com"},
-			expectFilterChain:  false,
+			expectMatcher:      false,
 			expectTLSInspector: false,
-			expectServerNames:  nil,
 		},
 		{
 			name: "TCP listener with non-wildcard hostnames",
@@ -67,9 +66,9 @@ func TestAddServerNamesMatch(t *testing.T) {
 				},
 			},
 			hostnames:          []string{"example.com", "api.example.com"},
-			expectFilterChain:  true,
+			expectMatcher:      true,
+			expectMatchEntries: map[string]string{"example.com": "test-filter-chain", "api.example.com": "test-filter-chain"},
 			expectTLSInspector: true,
-			expectServerNames:  []string{"example.com", "api.example.com"},
 		},
 		{
 			name: "TCP listener with wildcard hostname",
@@ -87,26 +86,22 @@ func TestAddServerNamesMatch(t *testing.T) {
 				},
 			},
 			hostnames:          []string{"*"},
-			expectFilterChain:  false,
+			expectMatcher:      false,
+			expectOnNoMatch:    "",
 			expectTLSInspector: false,
-			expectServerNames:  nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filterChain := &listenerv3.FilterChain{}
+			filterChain := &listenerv3.FilterChain{
+				Name: "test-filter-chain",
+			}
 
-			err := addServerNamesMatch(tt.xdsListener, filterChain, tt.hostnames)
+			err := addServerNamesMatch(tt.xdsListener, filterChain, tt.hostnames, true)
 			require.NoError(t, err)
 
-			// Check if filter chain match was added
-			if tt.expectFilterChain {
-				require.NotNil(t, filterChain.FilterChainMatch)
-				require.Equal(t, tt.expectServerNames, filterChain.FilterChainMatch.ServerNames)
-			} else {
-				require.Nil(t, filterChain.FilterChainMatch)
-			}
+			require.Nil(t, filterChain.FilterChainMatch)
 
 			// Check if TLS inspector was added
 			if tt.xdsListener != nil && tt.expectTLSInspector {
@@ -128,6 +123,28 @@ func TestAddServerNamesMatch(t *testing.T) {
 					}
 				}
 				require.False(t, hasTLSInspector, "TLS inspector filter should not be added")
+			}
+
+			if tt.expectMatcher {
+				require.NotNil(t, tt.xdsListener.FilterChainMatcher)
+				matcherTree := tt.xdsListener.FilterChainMatcher.GetMatcherTree()
+				require.NotNil(t, matcherTree)
+				if tt.expectOnNoMatch != "" {
+					require.Equal(t, tt.expectOnNoMatch, tt.xdsListener.FilterChainMatcher.GetOnNoMatch().GetAction().GetName())
+				} else {
+					require.Nil(t, tt.xdsListener.FilterChainMatcher.GetOnNoMatch())
+				}
+
+				if len(tt.expectMatchEntries) > 0 {
+					exactMatches := matcherTree.GetExactMatchMap()
+					require.NotNil(t, exactMatches)
+					for hostname, filterChainName := range tt.expectMatchEntries {
+						require.Contains(t, exactMatches.GetMap(), hostname)
+						require.Equal(t, filterChainName, exactMatches.GetMap()[hostname].GetAction().GetName())
+					}
+				}
+			} else if tt.xdsListener != nil {
+				require.Nil(t, tt.xdsListener.FilterChainMatcher)
 			}
 		})
 	}

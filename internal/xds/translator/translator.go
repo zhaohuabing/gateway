@@ -69,6 +69,9 @@ type Translator struct {
 	// RuntimeFlag holds the feature flags for the translator.
 	RuntimeFlags *egv1a1.RuntimeFlags
 
+	// UseFilterChainMatcher toggles the listener-level matcher for filter chain selection.
+	UseFilterChainMatcher bool
+
 	Logger logging.Logger
 }
 

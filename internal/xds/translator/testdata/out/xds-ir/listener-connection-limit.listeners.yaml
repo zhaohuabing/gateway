@@ -124,11 +124,22 @@
     socketAddress:
       address: '::'
       portValue: 10083
+  filterChainMatcher:
+    matcherTree:
+      exactMatchMap:
+        map:
+          bar.com:
+            action:
+              name: bar.com
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: bar.com
+      input:
+        name: envoy.matching.inputs.server_name
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.ServerNameInput
   filterChains:
-  - filterChainMatch:
-      serverNames:
-      - bar.com
-    filters:
+  - filters:
     - name: envoy.filters.network.connection_limit
       typedConfig:
         '@type': type.googleapis.com/envoy.extensions.filters.network.connection_limit.v3.ConnectionLimit
@@ -139,6 +150,7 @@
         '@type': type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
         cluster: tls-route-dest
         statPrefix: tls-passthrough-10083
+    name: bar.com
   listenerFilters:
   - name: envoy.filters.listener.tls_inspector
     typedConfig:

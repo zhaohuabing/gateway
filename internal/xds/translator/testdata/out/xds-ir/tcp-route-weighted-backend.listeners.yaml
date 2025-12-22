@@ -2,13 +2,34 @@
     socketAddress:
       address: '::'
       portValue: 10080
+  filterChainMatcher:
+    matcherTree:
+      exactMatchMap:
+        map:
+          bar.com:
+            action:
+              name: tcp-route-weighted-backend
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: tcp-route-weighted-backend
+          example.com:
+            action:
+              name: tcp-route-weighted-backend
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: tcp-route-weighted-backend
+          foo.com:
+            action:
+              name: tcp-route-weighted-backend
+              typedConfig:
+                '@type': type.googleapis.com/google.protobuf.StringValue
+                value: tcp-route-weighted-backend
+      input:
+        name: envoy.matching.inputs.server_name
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.ServerNameInput
   filterChains:
-  - filterChainMatch:
-      serverNames:
-      - foo.com
-      - bar.com
-      - example.com
-    filters:
+  - filters:
     - name: envoy.filters.network.tcp_proxy
       typedConfig:
         '@type': type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
