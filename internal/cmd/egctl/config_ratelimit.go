@@ -34,7 +34,8 @@ func ratelimitConfigCommand() *cobra.Command {
 	rlConfigCmd := &cobra.Command{
 		Use:     "envoy-ratelimit",
 		Aliases: []string{"rl"},
-		Long:    `Retrieve the relevant rate limit configuration from the Rate Limit instance`,
+		Short:   "Retrieves Envoy Gateway rate limit configuration.",
+		Long:    `Retrieves the relevant rate limit configuration from the Rate Limit instance.`,
 		Example: `  # Retrieve rate limit configuration
   egctl config envoy-ratelimit
 

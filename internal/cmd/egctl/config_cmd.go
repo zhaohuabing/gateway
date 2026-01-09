@@ -23,14 +23,15 @@ func newConfigCommand() *cobra.Command {
 	}
 
 	cfgCommand.AddCommand(proxyCommand())
+	cfgCommand.AddCommand(gatewayCommand())
 	cfgCommand.AddCommand(ratelimitCommand())
 
 	options.AddKubeConfigFlags(cfgCommand.PersistentFlags())
 
 	cfgCommand.PersistentFlags().StringVarP(&output, "output", "o", "json", "One of 'yaml' or 'json'")
-	cfgCommand.PersistentFlags().StringVarP(&podNamespace, "namespace", "n", "envoy-gateway-system", "Namespace where envoy proxy pod are installed.")
-	cfgCommand.PersistentFlags().StringArrayVarP(&labelSelectors, "labels", "l", nil, "Labels to select the envoy proxy pod.")
-	cfgCommand.PersistentFlags().BoolVarP(&allNamespaces, "all-namespaces", "A", false, "List all envoy proxy pods from all namespaces.")
+	cfgCommand.PersistentFlags().StringVarP(&podNamespace, "namespace", "n", "envoy-gateway-system", "Namespace where Envoy Gateway or Envoy Proxy pods are installed.")
+	cfgCommand.PersistentFlags().StringArrayVarP(&labelSelectors, "labels", "l", nil, "Labels to select the Envoy Gateway or Envoy Proxy pod.")
+	cfgCommand.PersistentFlags().BoolVarP(&allNamespaces, "all-namespaces", "A", false, "List all Envoy Gateway or Envoy Proxy pods from all namespaces.")
 
 	return cfgCommand
 }
@@ -43,7 +44,8 @@ func proxyCommand() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "envoy-proxy",
 		Aliases: []string{"proxy"},
-		Long:    "Retrieve information from envoy proxy.",
+		Short:   "Retrieves Envoy proxy xDS configuration.",
+		Long:    "Retrieves configuration information from Envoy proxy pods.",
 	}
 
 	c.AddCommand(allConfigCmd())
