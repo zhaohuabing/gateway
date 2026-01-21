@@ -95,105 +95,121 @@ func (r *gatewayAPIReconciler) processGRPCRoutes(ctx context.Context, gatewayNam
 ) error {
 	grpcRouteList := &gwapiv1.GRPCRouteList{}
 
+	// Process GRPCRoutes attached to the gateway
 	if err := r.client.List(ctx, grpcRouteList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(gatewayGRPCRouteIndex, gatewayNamespaceName),
 	}); err != nil {
 		r.log.Error(err, "failed to list GRPCRoutes")
 		return err
 	}
-
 	for i := range grpcRouteList.Items {
 		grpcRoute := &grpcRouteList.Items[i]
-		if r.namespaceLabel != nil {
-			if ok, err := r.checkObjectNamespaceLabels(grpcRoute); err != nil {
-				r.log.Error(err, "failed to check namespace labels for GRPCRoute %s in namespace %s: %w", grpcRoute.GetName(), grpcRoute.GetNamespace())
-				continue
-			} else if !ok {
-				continue
-			}
+		r.processGRPCRoute(ctx, grpcRoute, resourceMap, resourceTree)
+	}
+
+	// Process GRPCRoutes attached to the xListenerSet
+	for _, xlsNN := range resourceMap.gatewayToXListenerSets[gatewayNamespaceName] {
+		grpcRouteList = &gwapiv1.GRPCRouteList{}
+		if err := r.client.List(ctx, grpcRouteList, &client.ListOptions{
+			FieldSelector: fields.OneTermEqualSelector(xListenerGRPCRouteIndex, xlsNN.String()),
+		}); err != nil {
+			r.log.Error(err, "failed to list GRPCRoutes by XListenerSet", "xListenerSet", xlsNN.String())
+			return err
 		}
-
-		key := utils.NamespacedName(grpcRoute).String()
-		if resourceMap.allAssociatedGRPCRoutes.Has(key) {
-			r.log.Info("current GRPCRoute has been processed already", "namespace", grpcRoute.Namespace, "name", grpcRoute.Name)
-			continue
+		for i := range grpcRouteList.Items {
+			grpcRoute := &grpcRouteList.Items[i]
+			r.processGRPCRoute(ctx, grpcRoute, resourceMap, resourceTree)
 		}
-
-		r.log.Info("processing GRPCRoute", "namespace", grpcRoute.Namespace, "name", grpcRoute.Name)
-
-		for _, rule := range grpcRoute.Spec.Rules {
-			for _, backendRef := range rule.BackendRefs {
-				// Skip validation for custom backend resources managed by extensions
-				backendRefKind := gatewayapi.KindDerefOr(backendRef.Kind, resource.KindService)
-				if !r.isCustomBackendResource(backendRef.Group, backendRefKind) {
-					if err := validateBackendRef(&backendRef.BackendRef); err != nil {
-						r.log.Error(err, "invalid backendRef")
-						continue
-					}
-				}
-				if err := r.processBackendRef(
-					ctx,
-					resourceMap,
-					resourceTree,
-					resource.KindGRPCRoute,
-					grpcRoute.Namespace,
-					grpcRoute.Name,
-					backendRef.BackendObjectReference); err != nil {
-					r.log.Error(err,
-						"failed to process BackendRef for GRPCRoute",
-						"grpcRoute", grpcRoute, "backendRef", backendRef.BackendObjectReference)
-				}
-			}
-
-			for i := range rule.Filters {
-				filter := rule.Filters[i]
-				var extGKs []schema.GroupKind
-				for _, gvk := range r.extGVKs {
-					extGKs = append(extGKs, gvk.GroupKind())
-				}
-				if err := gatewayapi.ValidateGRPCRouteFilter(&filter, extGKs...); err != nil {
-					r.log.Error(err, "bypassing filter rule", "index", i)
-					continue
-				}
-				if filter.Type == gwapiv1.GRPCRouteFilterExtensionRef {
-					// NOTE: filters must be in the same namespace as the GRPCRoute
-					// Check if it's a Kind managed by an extension and add to resourceTree
-					key := utils.NamespacedNameWithGroupKind{
-						NamespacedName: types.NamespacedName{
-							Namespace: grpcRoute.Namespace,
-							Name:      string(filter.ExtensionRef.Name),
-						},
-						GroupKind: schema.GroupKind{
-							Group: string(filter.ExtensionRef.Group),
-							Kind:  string(filter.ExtensionRef.Kind),
-						},
-					}
-
-					extRefFilter, ok := resourceMap.extensionRefFilters[key]
-					if !ok {
-						r.log.Error(
-							errors.New("filter not found; bypassing rule"),
-							"Filter not found; bypassing rule",
-							"name",
-							filter.ExtensionRef.Name, "index", i)
-						continue
-					}
-
-					resourceTree.ExtensionRefFilters = append(resourceTree.ExtensionRefFilters, extRefFilter)
-
-				}
-			}
-		}
-
-		resourceMap.allAssociatedNamespaces.Insert(grpcRoute.Namespace)
-		resourceMap.allAssociatedGRPCRoutes.Insert(key)
-		// Discard Status to reduce memory consumption in watchable
-		// It will be recomputed by the gateway-api layer
-		grpcRoute.Status = gwapiv1.GRPCRouteStatus{}
-		resourceTree.GRPCRoutes = append(resourceTree.GRPCRoutes, grpcRoute)
 	}
 
 	return nil
+}
+
+func (r *gatewayAPIReconciler) processGRPCRoute(ctx context.Context, grpcRoute *gwapiv1.GRPCRoute,
+	resourceMap *resourceMappings, resourceTree *resource.Resources,
+) {
+	if r.namespaceLabel != nil {
+		if ok, err := r.checkObjectNamespaceLabels(grpcRoute); err != nil {
+			r.log.Error(err, "failed to check namespace labels for GRPCRoute %s in namespace %s: %w", grpcRoute.GetName(), grpcRoute.GetNamespace())
+			return
+		} else if !ok {
+			return
+		}
+	}
+
+	key := utils.NamespacedName(grpcRoute).String()
+	if resourceMap.allAssociatedGRPCRoutes.Has(key) {
+		r.log.Info("current GRPCRoute has been processed already", "namespace", grpcRoute.Namespace, "name", grpcRoute.Name)
+		return
+	}
+
+	r.log.Info("processing GRPCRoute", "namespace", grpcRoute.Namespace, "name", grpcRoute.Name)
+
+	for _, rule := range grpcRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			backendRefKind := gatewayapi.KindDerefOr(backendRef.Kind, resource.KindService)
+			if !r.isCustomBackendResource(backendRef.Group, backendRefKind) {
+				if err := validateBackendRef(&backendRef.BackendRef); err != nil {
+					r.log.Error(err, "invalid backendRef")
+					continue
+				}
+			}
+			if err := r.processBackendRef(
+				ctx,
+				resourceMap,
+				resourceTree,
+				resource.KindGRPCRoute,
+				grpcRoute.Namespace,
+				grpcRoute.Name,
+				backendRef.BackendObjectReference); err != nil {
+				r.log.Error(err,
+					"failed to process BackendRef for GRPCRoute",
+					"grpcRoute", grpcRoute, "backendRef", backendRef.BackendObjectReference)
+			}
+		}
+
+		for i := range rule.Filters {
+			filter := rule.Filters[i]
+			var extGKs []schema.GroupKind
+			for _, gvk := range r.extGVKs {
+				extGKs = append(extGKs, gvk.GroupKind())
+			}
+			if err := gatewayapi.ValidateGRPCRouteFilter(&filter, extGKs...); err != nil {
+				r.log.Error(err, "bypassing filter rule", "index", i)
+				continue
+			}
+			if filter.Type == gwapiv1.GRPCRouteFilterExtensionRef {
+				key := utils.NamespacedNameWithGroupKind{
+					NamespacedName: types.NamespacedName{
+						Namespace: grpcRoute.Namespace,
+						Name:      string(filter.ExtensionRef.Name),
+					},
+					GroupKind: schema.GroupKind{
+						Group: string(filter.ExtensionRef.Group),
+						Kind:  string(filter.ExtensionRef.Kind),
+					},
+				}
+
+				extRefFilter, ok := resourceMap.extensionRefFilters[key]
+				if !ok {
+					r.log.Error(
+						errors.New("filter not found; bypassing rule"),
+						"Filter not found; bypassing rule",
+						"name",
+						filter.ExtensionRef.Name, "index", i)
+					continue
+				}
+
+				resourceTree.ExtensionRefFilters = append(resourceTree.ExtensionRefFilters, extRefFilter)
+
+			}
+		}
+	}
+
+	resourceMap.allAssociatedNamespaces.Insert(grpcRoute.Namespace)
+	resourceMap.allAssociatedGRPCRoutes.Insert(key)
+	grpcRoute.Status = gwapiv1.GRPCRouteStatus{}
+	resourceTree.GRPCRoutes = append(resourceTree.GRPCRoutes, grpcRoute)
 }
 
 // processHTTPRoutes finds HTTPRoutes corresponding to a gatewayNamespaceName, further checks for
@@ -222,82 +238,103 @@ func (r *gatewayAPIReconciler) processHTTPRoutes(ctx context.Context, gatewayNam
 		resourceMap.extensionRefFilters[utils.GetNamespacedNameWithGroupKind(&backend)] = backend
 	}
 
+	// Process HTTPRoutes attached to the gateway
 	if err := r.client.List(ctx, httpRouteList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(gatewayHTTPRouteIndex, gatewayNamespaceName),
 	}); err != nil {
-		r.log.Error(err, "failed to list HTTPRoutes")
+		r.log.Error(err, "failed to list HTTPRoutes by Gateway", "gateway", gatewayNamespaceName)
 		return err
 	}
-
 	for i := range httpRouteList.Items {
 		httpRoute := &httpRouteList.Items[i]
-		if r.namespaceLabel != nil {
-			if ok, err := r.checkObjectNamespaceLabels(httpRoute); err != nil {
-				r.log.Error(err, "failed to check namespace labels for HTTPRoute %s in namespace %s: %w", httpRoute.GetName(), httpRoute.GetNamespace())
-				continue
-			} else if !ok {
-				continue
-			}
+		r.processHTTPRoute(ctx, httpRoute, resourceMap, resourceTree)
+	}
+
+	// Process HTTPRoutes attached to the xListenerSet
+	for _, xlsNN := range resourceMap.gatewayToXListenerSets[gatewayNamespaceName] {
+		httpRouteList = &gwapiv1.HTTPRouteList{}
+		if err := r.client.List(ctx, httpRouteList, &client.ListOptions{
+			FieldSelector: fields.OneTermEqualSelector(xListenerHTTPRouteIndex, xlsNN.String()),
+		}); err != nil {
+			r.log.Error(err, "failed to list HTTPRoutes by XListenerSet", "xListenerSet", xlsNN.String())
+			return err
 		}
-
-		key := utils.NamespacedName(httpRoute).String()
-		if resourceMap.allAssociatedHTTPRoutes.Has(key) {
-			r.log.Info("current HTTPRoute has been processed already", "namespace", httpRoute.Namespace, "name", httpRoute.Name)
-			continue
+		for i := range httpRouteList.Items {
+			httpRoute := &httpRouteList.Items[i]
+			r.processHTTPRoute(ctx, httpRoute, resourceMap, resourceTree)
 		}
+	}
 
-		r.log.Info("processing HTTPRoute", "namespace", httpRoute.Namespace, "name", httpRoute.Name)
+	return nil
+}
 
-		for _, rule := range httpRoute.Spec.Rules {
-			for _, backendRef := range rule.BackendRefs {
-				// Skip validation for custom backend resources managed by extensions
-				backendRefKind := gatewayapi.KindDerefOr(backendRef.Kind, resource.KindService)
-				if !r.isCustomBackendResource(backendRef.Group, backendRefKind) {
-					if err := validateBackendRef(&backendRef.BackendRef); err != nil {
-						r.log.Error(err, "invalid backendRef")
-						continue
-					}
-				}
-				if err := r.processBackendRef(
-					ctx,
-					resourceMap,
-					resourceTree,
-					resource.KindHTTPRoute,
-					httpRoute.Namespace,
-					httpRoute.Name,
-					backendRef.BackendObjectReference); err != nil {
-					r.log.Error(err,
-						"failed to process BackendRef for HTTPRoute",
-						"httpRoute", httpRoute, "backendRef", backendRef.BackendObjectReference)
-				}
+func (r *gatewayAPIReconciler) processHTTPRoute(ctx context.Context, httpRoute *gwapiv1.HTTPRoute,
+	resourceMap *resourceMappings, resourceTree *resource.Resources,
+) {
+	if r.namespaceLabel != nil {
+		if ok, err := r.checkObjectNamespaceLabels(httpRoute); err != nil {
+			r.log.Error(err, "failed to check namespace labels for HTTPRoute %s in namespace %s: %w", httpRoute.GetName(), httpRoute.GetNamespace())
+			return
+		} else if !ok {
+			return
+		}
+	}
 
-				for j := range backendRef.Filters {
-					// Some of the validation logic in processHTTPRouteFilter is not needed for backendRef filters.
-					// However, we reuse the same function to avoid code duplication.
-					if err := r.processHTTPRouteFilter(ctx, &backendRef.Filters[j], httpRoute, resourceMap, resourceTree); err != nil {
-						r.log.Error(err, "bypassing backendRef filter", "index", j)
-						continue
-					}
+	key := utils.NamespacedName(httpRoute).String()
+	if resourceMap.allAssociatedHTTPRoutes.Has(key) {
+		r.log.Info("current HTTPRoute has been processed already", "namespace", httpRoute.Namespace, "name", httpRoute.Name)
+		return
+	}
+
+	r.log.Info("processing HTTPRoute", "namespace", httpRoute.Namespace, "name", httpRoute.Name)
+
+	for _, rule := range httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			// Skip validation for custom backend resources managed by extensions
+			backendRefKind := gatewayapi.KindDerefOr(backendRef.Kind, resource.KindService)
+			if !r.isCustomBackendResource(backendRef.Group, backendRefKind) {
+				if err := validateBackendRef(&backendRef.BackendRef); err != nil {
+					r.log.Error(err, "invalid backendRef")
+					continue
 				}
 			}
+			if err := r.processBackendRef(
+				ctx,
+				resourceMap,
+				resourceTree,
+				resource.KindHTTPRoute,
+				httpRoute.Namespace,
+				httpRoute.Name,
+				backendRef.BackendObjectReference); err != nil {
+				r.log.Error(err,
+					"failed to process BackendRef for HTTPRoute",
+					"httpRoute", httpRoute, "backendRef", backendRef.BackendObjectReference)
+			}
 
-			for j := range rule.Filters {
-				if err := r.processHTTPRouteFilter(ctx, &rule.Filters[j], httpRoute, resourceMap, resourceTree); err != nil {
-					r.log.Error(err, "bypassing filter rule", "index", j)
+			for j := range backendRef.Filters {
+				// Some of the validation logic in processHTTPRouteFilter is not needed for backendRef filters.
+				// However, we reuse the same function to avoid code duplication.
+				if err := r.processHTTPRouteFilter(ctx, &backendRef.Filters[j], httpRoute, resourceMap, resourceTree); err != nil {
+					r.log.Error(err, "bypassing backendRef filter", "index", j)
 					continue
 				}
 			}
 		}
 
-		resourceMap.allAssociatedNamespaces.Insert(httpRoute.Namespace)
-		resourceMap.allAssociatedHTTPRoutes.Insert(key)
-		// Discard Status to reduce memory consumption in watchable
-		// It will be recomputed by the gateway-api layer
-		httpRoute.Status = gwapiv1.HTTPRouteStatus{}
-		resourceTree.HTTPRoutes = append(resourceTree.HTTPRoutes, httpRoute)
+		for j := range rule.Filters {
+			if err := r.processHTTPRouteFilter(ctx, &rule.Filters[j], httpRoute, resourceMap, resourceTree); err != nil {
+				r.log.Error(err, "bypassing filter rule", "index", j)
+				continue
+			}
+		}
 	}
 
-	return nil
+	resourceMap.allAssociatedNamespaces.Insert(httpRoute.Namespace)
+	resourceMap.allAssociatedHTTPRoutes.Insert(key)
+	// Discard Status to reduce memory consumption in watchable
+	// It will be recomputed by the gateway-api layer
+	httpRoute.Status = gwapiv1.HTTPRouteStatus{}
+	resourceTree.HTTPRoutes = append(resourceTree.HTTPRoutes, httpRoute)
 }
 
 func (r *gatewayAPIReconciler) processHTTPRouteFilter(

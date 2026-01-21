@@ -104,7 +104,6 @@ type EnvoyGatewaySpec struct {
 	// These APIs live under the gateway.networking.x-k8s.io group and are opt-in.
 	//
 	// +optional
-	// +notImplementedHide
 	GatewayAPIs *GatewayAPIs `json:"gatewayAPIs,omitempty"`
 
 	// RuntimeFlags defines the runtime flags for Envoy Gateway.
@@ -118,10 +117,8 @@ type EnvoyGatewaySpec struct {
 type GatewayAPI string
 
 const (
-// XListenerSet enables the Gateway API XListenerSet resource.
-// XListenerSet GatewayAPI = "XListenerSet"
-// XBackendTrafficPolicy enables the Gateway API XBackendTrafficPolicy resource.
-// XBackendTrafficPolicy GatewayAPI = "XBackendTrafficPolicy"
+	// XListenerSet enables the Gateway API XListenerSet resource.
+	XListenerSet GatewayAPI = "XListenerSet"
 )
 
 // GatewayAPIs provides a mechanism to opt into experimental Gateway API resources.

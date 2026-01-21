@@ -7,7 +7,6 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -17,6 +16,7 @@ import (
 	gwapiv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwapiv1a3 "sigs.k8s.io/gateway-api/apis/v1alpha3"
 	gwapiv1b1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+	gwapixv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	"github.com/envoyproxy/gateway/internal/gatewayapi"
@@ -27,6 +27,9 @@ const (
 	classGatewayIndex                = "classGatewayIndex"
 	gatewayTLSRouteIndex             = "gatewayTLSRouteIndex"
 	gatewayHTTPRouteIndex            = "gatewayHTTPRouteIndex"
+	xListenerHTTPRouteIndex          = "xlistenerHTTPRouteIndex"
+	xListenerGRPCRouteIndex          = "xlistenerGRPCRouteIndex"
+	gatewayXListenerSetIndex         = "gatewayXListenerSetIndex"
 	gatewayGRPCRouteIndex            = "gatewayGRPCRouteIndex"
 	gatewayTCPRouteIndex             = "gatewayTCPRouteIndex"
 	gatewayUDPRouteIndex             = "gatewayUDPRouteIndex"
@@ -84,6 +87,9 @@ func addHTTPRouteIndexers(ctx context.Context, mgr manager.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.HTTPRoute{}, gatewayHTTPRouteIndex, gatewayHTTPRouteIndexFunc); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.HTTPRoute{}, xListenerHTTPRouteIndex, xListenerHTTPRouteIndexFunc); err != nil {
+		return err
+	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.HTTPRoute{}, backendHTTPRouteIndex, backendHTTPRouteIndexFunc); err != nil {
 		return err
@@ -91,6 +97,29 @@ func addHTTPRouteIndexers(ctx context.Context, mgr manager.Manager) error {
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.HTTPRoute{}, httpRouteFilterHTTPRouteIndex, httpRouteFilterHTTPRouteIndexFunc); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func addXListenerSetIndexers(ctx context.Context, mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapixv1a1.XListenerSet{}, gatewayXListenerSetIndex, gatewayXListenerSetIndexFunc); err != nil {
+		return err
+	}
+	return nil
+}
+
+func gatewayXListenerSetIndexFunc(rawObj client.Object) []string {
+	parent := rawObj.(*gwapixv1a1.XListenerSet).Spec.ParentRef
+	if parent.Kind == nil || string(*parent.Kind) == resource.KindGateway {
+		// If an explicit Gateway namespace is not provided, use the XListenerSet namespace to
+		// lookup the provided Gateway Name.
+		return []string{
+			types.NamespacedName{
+				Namespace: gatewayapi.NamespaceDerefOr(parent.Namespace, rawObj.GetNamespace()),
+				Name:      string(parent.Name),
+			}.String(),
+		}
 	}
 
 	return nil
@@ -112,6 +141,29 @@ func gatewayHTTPRouteIndexFunc(rawObj client.Object) []string {
 		}
 	}
 	return gateways
+}
+
+func xListenerHTTPRouteIndexFunc(rawObj client.Object) []string {
+	httproute := rawObj.(*gwapiv1.HTTPRoute)
+	xlisteners := make([]string, 0, len(httproute.Spec.ParentRefs))
+	for _, parent := range httproute.Spec.ParentRefs {
+		if parent.Kind == nil || string(*parent.Kind) != resource.KindXListenerSet {
+			continue
+		}
+		if parent.Group != nil {
+			group := string(*parent.Group)
+			if group != gwapiv1.GroupName && group != gwapixv1a1.GroupVersion.Group {
+				continue
+			}
+		}
+		xlisteners = append(xlisteners,
+			types.NamespacedName{
+				Namespace: gatewayapi.NamespaceDerefOr(parent.Namespace, httproute.Namespace),
+				Name:      string(parent.Name),
+			}.String(),
+		)
+	}
+	return xlisteners
 }
 
 func backendHTTPRouteIndexFunc(rawObj client.Object) []string {
@@ -166,7 +218,6 @@ func httpRouteFilterHTTPRouteIndexFunc(rawObj client.Object) []string {
 							Namespace: httproute.Namespace,
 							Name:      string(filter.ExtensionRef.Name),
 						}.String()] = struct{}{}
-						fmt.Println("xxxxxbackendRef: ", backendRef.Name, "filter: ", filter.ExtensionRef.Name)
 					}
 				}
 			}
@@ -306,12 +357,38 @@ func addGRPCRouteIndexers(ctx context.Context, mgr manager.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.GRPCRoute{}, gatewayGRPCRouteIndex, gatewayGRPCRouteIndexFunc); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.GRPCRoute{}, xListenerGRPCRouteIndex, xListenerGRPCRouteIndexFunc); err != nil {
+		return err
+	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &gwapiv1.GRPCRoute{}, backendGRPCRouteIndex, backendGRPCRouteIndexFunc); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func xListenerGRPCRouteIndexFunc(rawObj client.Object) []string {
+	grpcRoute := rawObj.(*gwapiv1.GRPCRoute)
+	xlisteners := make([]string, 0, len(grpcRoute.Spec.ParentRefs))
+	for _, parent := range grpcRoute.Spec.ParentRefs {
+		if parent.Kind == nil || string(*parent.Kind) != resource.KindXListenerSet {
+			continue
+		}
+		if parent.Group != nil {
+			group := string(*parent.Group)
+			if group != gwapiv1.GroupName && group != gwapixv1a1.GroupVersion.Group {
+				continue
+			}
+		}
+		xlisteners = append(xlisteners,
+			types.NamespacedName{
+				Namespace: gatewayapi.NamespaceDerefOr(parent.Namespace, grpcRoute.Namespace),
+				Name:      string(parent.Name),
+			}.String(),
+		)
+	}
+	return xlisteners
 }
 
 func gatewayGRPCRouteIndexFunc(rawObj client.Object) []string {
