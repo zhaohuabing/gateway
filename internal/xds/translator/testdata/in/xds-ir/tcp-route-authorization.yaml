@@ -16,10 +16,16 @@ tcp:
             ip: 10.0.0.0
             isIPv6: false
             maskLen: 24
+          sourceCIDRs:
+          - cidr: 172.16.0.0/16
+            distinct: false
+            ip: 172.16.0.0
+            isIPv6: false
+            maskLen: 16
       - action: Allow
         name: allow-corp
         principal:
-          clientCIDRs:
+          sourceCIDRs:
           - cidr: 192.168.100.0/24
             distinct: false
             ip: 192.168.100.0

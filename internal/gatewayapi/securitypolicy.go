@@ -277,7 +277,7 @@ func (t *Translator) processSecurityPolicyForRoute(
 
 	// Protocol-specific validation: pick the appropriate validator and message,
 	// then run it once to keep the flow linear and easier to read.
-	validator := validateSecurityPolicy
+	validator := validateSecurityPolicyForHTTPRoute
 	errMsg := "invalid SecurityPolicy"
 	if currTarget.Kind == resource.KindTCPRoute {
 		validator = validateSecurityPolicyForTCP
@@ -436,9 +436,19 @@ func validateSecurityPolicy(p *egv1a1.SecurityPolicy) error {
 	return nil
 }
 
+func validateSecurityPolicyForHTTPRoute(p *egv1a1.SecurityPolicy) error {
+	if err := validateSecurityPolicy(p); err != nil {
+		return err
+	}
+	if authorizationHasSourceCIDRs(p.Spec.Authorization) {
+		return errors.New("sourceCIDRs is only supported for TCP/L4 targets")
+	}
+	return nil
+}
+
 // validateSecurityPolicyForTCP ensures SecurityPolicy usage on TCP is compatible.
 //
-// TCP supports Authorization with ClientCIDRs ONLY.
+// TCP supports Authorization with ClientCIDRs and SourceCIDRs ONLY.
 // - Principals.JWT      => invalid (HTTP-only)
 // - Principals.Headers  => invalid (HTTP-only)
 // - Empty/no Authorization is allowed and results in no-op on TCP.
@@ -460,6 +470,9 @@ func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 		if err := validateCIDRs(rule.Principal.ClientCIDRs); err != nil {
 			return fmt.Errorf("rule %d: %w", i, err)
 		}
+		if err := validateCIDRs(rule.Principal.SourceCIDRs); err != nil {
+			return fmt.Errorf("rule %d: %w", i, err)
+		}
 	}
 	return nil
 }
@@ -468,10 +481,22 @@ func validateSecurityPolicyForTCP(p *egv1a1.SecurityPolicy) error {
 func validateCIDRs(cidrs []egv1a1.CIDR) error {
 	for _, c := range cidrs {
 		if _, _, err := net.ParseCIDR(string(c)); err != nil {
-			return fmt.Errorf("invalid ClientCIDR %q: %w", c, err)
+			return fmt.Errorf("invalid CIDR %q: %w", c, err)
 		}
 	}
 	return nil
+}
+
+func authorizationHasSourceCIDRs(authorization *egv1a1.Authorization) bool {
+	if authorization == nil {
+		return false
+	}
+	for _, rule := range authorization.Rules {
+		if len(rule.Principal.SourceCIDRs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func validateAPIKeyAuth(apiKeyAuth *egv1a1.APIKeyAuth) error {
@@ -872,7 +897,6 @@ func (t *Translator) translateSecurityPolicyForGateway(
 			errs = errors.Join(errs, err)
 		}
 	}
-
 	hasNonExtAuthError = errs != nil
 
 	if policy.Spec.ExtAuth != nil {
@@ -895,6 +919,13 @@ func (t *Translator) translateSecurityPolicyForGateway(
 	irKey := t.getIRKey(gateway.Gateway)
 	// Should exist since we've validated this
 	x := xdsIR[irKey]
+	policyTarget := irStringKey(policy.Namespace, string(target.Name))
+
+	httpSourceCIDRsErr := authorizationHasSourceCIDRs(policy.Spec.Authorization) && gatewayHasApplicableHTTPListeners(x, t.MergeGateways, policyTarget, target.SectionName)
+	if httpSourceCIDRsErr {
+		errs = errors.Join(errs, errors.New("sourceCIDRs is only supported for TCP/L4 targets"))
+		hasNonExtAuthError = true
+	}
 
 	// Pre-create security features and error response to avoid repeated allocations
 	securityFeatures := &ir.SecurityFeatures{
@@ -920,7 +951,6 @@ func (t *Translator) translateSecurityPolicyForGateway(
 		}
 	}
 
-	policyTarget := irStringKey(policy.Namespace, string(target.Name))
 	routesWithDirectResponse := sets.New[string]()
 	for _, h := range x.HTTP {
 		gatewayName := extractGatewayNameFromListener(h.Name)
@@ -935,6 +965,9 @@ func (t *Translator) translateSecurityPolicyForGateway(
 		// A Policy targeting the specific scope(xRoute rule, xRoute, Gateway listener) wins over a policy
 		// targeting a lesser specific scope(Gateway).
 		for _, r := range h.Routes {
+			if httpSourceCIDRsErr {
+				continue
+			}
 			// if already set - there's a specific level policy, so skip.
 			if r.Security != nil {
 				continue
@@ -2098,6 +2131,15 @@ func (t *Translator) buildAuthorization(policy *egv1a1.SecurityPolicy) (*ir.Auth
 			irPrincipal.ClientCIDRs = append(irPrincipal.ClientCIDRs, cidrMatch)
 		}
 
+		for _, cidr := range rule.Principal.SourceCIDRs {
+			cidrMatch, err := parseCIDR(string(cidr))
+			if err != nil {
+				return nil, fmt.Errorf("unable to translate authorization rule: %w", err)
+			}
+
+			irPrincipal.SourceCIDRs = append(irPrincipal.SourceCIDRs, cidrMatch)
+		}
+
 		irPrincipal.JWT = rule.Principal.JWT
 		irPrincipal.Headers = rule.Principal.Headers
 
@@ -2123,4 +2165,23 @@ func defaultAuthorizationRuleName(policy *egv1a1.SecurityPolicy, index int) stri
 		"%s/authorization/rule/%s",
 		irConfigName(policy),
 		strconv.Itoa(index))
+}
+
+func gatewayHasApplicableHTTPListeners(
+	x *ir.Xds,
+	mergeGateways bool,
+	policyTarget string,
+	sectionName *gwapiv1.SectionName,
+) bool {
+	for _, h := range x.HTTP {
+		gatewayName := extractGatewayNameFromListener(h.Name)
+		if mergeGateways && gatewayName != policyTarget {
+			continue
+		}
+		if sectionName != nil && string(*sectionName) != h.Metadata.SectionName {
+			continue
+		}
+		return true
+	}
+	return false
 }

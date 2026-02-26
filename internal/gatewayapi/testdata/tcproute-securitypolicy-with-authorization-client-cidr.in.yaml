@@ -139,6 +139,8 @@ securityPolicies:
         principal:
           clientCIDRs:
           - 10.10.1.0/24
+          sourceCIDRs:
+          - 172.16.1.0/24
 - apiVersion: gateway.envoyproxy.io/v1alpha1
   kind: SecurityPolicy
   metadata:
@@ -155,7 +157,7 @@ securityPolicies:
       - action: Allow
         name: allow-route-bar
         principal:
-          clientCIDRs:
+          sourceCIDRs:
           - 10.10.2.0/24
 - apiVersion: gateway.envoyproxy.io/v1alpha1
   kind: SecurityPolicy

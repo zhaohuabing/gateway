@@ -228,7 +228,7 @@ securityPolicies:
       - action: Allow
         name: allow-route-bar
         principal:
-          clientCIDRs:
+          sourceCIDRs:
           - 10.10.2.0/24
     targetRef:
       group: gateway.networking.k8s.io
@@ -302,6 +302,8 @@ securityPolicies:
         principal:
           clientCIDRs:
           - 10.10.1.0/24
+          sourceCIDRs:
+          - 172.16.1.0/24
     targetRef:
       group: gateway.networking.k8s.io
       kind: Gateway
@@ -727,6 +729,12 @@ xdsIR:
                 ip: 10.10.1.0
                 isIPv6: false
                 maskLen: 24
+              sourceCIDRs:
+              - cidr: 172.16.1.0/24
+                distinct: false
+                ip: 172.16.1.0
+                isIPv6: false
+                maskLen: 24
         destination:
           metadata:
             kind: TCPRoute
@@ -767,7 +775,7 @@ xdsIR:
           - action: Allow
             name: allow-route-bar
             principal:
-              clientCIDRs:
+              sourceCIDRs:
               - cidr: 10.10.2.0/24
                 distinct: false
                 ip: 10.10.2.0
