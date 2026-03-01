@@ -421,6 +421,7 @@ func TestValidateConfigMapForReconcile(t *testing.T) {
 		r.client = fakeclient.NewClientBuilder().
 			WithScheme(envoygateway.GetScheme()).
 			WithObjects(tc.configs...).
+			WithIndex(&gwapiv1.BackendTLSPolicy{}, configMapBtlsIndex, configMapBtlsIndexFunc).
 			WithIndex(&egv1a1.Backend{}, configMapBackendIndex, configMapBackendIndexFunc).
 			WithIndex(&egv1a1.EnvoyExtensionPolicy{}, configMapEepIndex, configMapEepIndexFunc).
 			WithIndex(&egv1a1.SecurityPolicy{}, configMapSecurityPolicyIndex, configMapSecurityPolicyIndexFunc).
