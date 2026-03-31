@@ -240,8 +240,7 @@ export GITHUB_REMOTE=origin
 14. Update the benchmark explorer data for the new release:
 
     ```shell
-    cd tools
-    ./src/benchmark-dashboard-sync/sync.sh --version v${MAJOR_VERSION}.${MINOR_VERSION}.0
+    make sync-benchmark-dashboard VERSION=v${MAJOR_VERSION}.${MINOR_VERSION}.0
     ```
 
     Commit the generated benchmark dashboard changes, including the updated files under `site/static/`, open a PR against `main`, and merge it so the docs workflow publishes the new benchmark explorer entry.
@@ -396,8 +395,7 @@ export GITHUB_REMOTE=origin
 15. Update the benchmark explorer data for the new release:
 
     ```shell
-    cd tools
-    ./src/benchmark-dashboard-sync/sync.sh --version v${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}
+    make sync-benchmark-dashboard VERSION=v${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}
     ```
 
     Commit the generated benchmark dashboard changes, including the updated files under `site/static/`, open a PR against `main`, and merge it so the docs workflow publishes the new benchmark explorer entry.
