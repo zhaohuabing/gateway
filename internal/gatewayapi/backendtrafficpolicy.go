@@ -1761,6 +1761,9 @@ func (t *Translator) buildResponseOverride(policy *egv1a1.BackendTrafficPolicy) 
 		match := ir.CustomResponseMatch{
 			StatusCodes: make([]ir.StatusCodeMatch, 0, len(ro.Match.StatusCodes)),
 		}
+		if ro.Match.Type != nil {
+			match.Type = ir.CustomResponseMatchType(*ro.Match.Type)
+		}
 
 		for _, code := range ro.Match.StatusCodes {
 			if code.Type != nil && *code.Type == egv1a1.StatusCodeValueTypeRange {

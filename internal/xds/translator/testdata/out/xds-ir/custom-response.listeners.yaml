@@ -150,13 +150,22 @@
                         '@type': type.googleapis.com/envoy.extensions.http.custom_response.local_response_policy.v3.LocalResponsePolicy
                         statusCode: 404
                   predicate:
-                    singlePredicate:
-                      input:
-                        name: http-response-status-code-match-input
-                        typedConfig:
-                          '@type': type.googleapis.com/envoy.type.matcher.v3.HttpResponseStatusCodeMatchInput
-                      valueMatch:
-                        exact: "403"
+                    andMatcher:
+                      predicate:
+                      - singlePredicate:
+                          input:
+                            name: http-response-local-reply-match-input
+                            typedConfig:
+                              '@type': type.googleapis.com/envoy.type.matcher.v3.HttpResponseLocalReplyMatchInput
+                          valueMatch:
+                            exact: "true"
+                      - singlePredicate:
+                          input:
+                            name: http-response-status-code-match-input
+                            typedConfig:
+                              '@type': type.googleapis.com/envoy.type.matcher.v3.HttpResponseStatusCodeMatchInput
+                          valueMatch:
+                            exact: "403"
         - name: envoy.filters.http.router
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -722,9 +722,23 @@ type ResponseOverrideRule struct {
 // CustomResponseMatch defines the configuration for matching a user response to return a custom one.
 // +k8s:deepcopy-gen=true
 type CustomResponseMatch struct {
+	// Type is the type of response to match.
+	Type CustomResponseMatchType `json:"type,omitempty"`
+
 	// Status code to match on. The match evaluates to true if any of the matches are successful.
 	StatusCodes []StatusCodeMatch `json:"statusCodes"`
 }
+
+// CustomResponseMatchType defines the types of responses that can be matched.
+type CustomResponseMatchType string
+
+const (
+	// CustomResponseMatchTypeAll matches all responses.
+	CustomResponseMatchTypeAll CustomResponseMatchType = "All"
+
+	// CustomResponseMatchTypeLocal matches locally generated Envoy responses.
+	CustomResponseMatchTypeLocal CustomResponseMatchType = "Local"
+)
 
 // StatusCodeMatch defines the configuration for matching a status code.
 // +k8s:deepcopy-gen=true

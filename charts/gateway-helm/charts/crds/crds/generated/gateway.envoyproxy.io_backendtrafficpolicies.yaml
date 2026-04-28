@@ -2192,6 +2192,16 @@ spec:
                           maxItems: 50
                           minItems: 1
                           type: array
+                        type:
+                          default: All
+                          description: |-
+                            Type is the type of response to match.
+                            Valid values are All and Local.
+                            When set to Local, only locally generated Envoy responses are matched.
+                          enum:
+                          - All
+                          - Local
+                          type: string
                       required:
                       - statusCodes
                       type: object

@@ -106,61 +106,25 @@ func (c *customResponse) customResponseConfig(ro *ir.ResponseOverride) (*respv3.
 
 	for _, r := range ro.Rules {
 		var (
-			action    *matcherv3.Matcher_OnMatch_Action
-			predicate *matcherv3.Matcher_MatcherList_Predicate
-			err       error
+			action *matcherv3.Matcher_OnMatch_Action
+			err    error
 		)
 
 		if action, err = c.buildAction(r); err != nil {
 			return nil, err
 		}
 
-		switch {
-		case len(r.Match.StatusCodes) == 0:
-			// This is just a sanity check, as the CRD validation should have caught this.
-			return nil, fmt.Errorf("missing status code in response override rule")
-		case len(r.Match.StatusCodes) == 1:
-			if predicate, err = c.buildSinglePredicate(r.Match.StatusCodes[0]); err != nil {
-				return nil, err
-			}
-
-			matcher := &matcherv3.Matcher_MatcherList_FieldMatcher{
-				Predicate: predicate,
-				OnMatch: &matcherv3.Matcher_OnMatch{
-					OnMatch: action,
-				},
-			}
-
-			matchers = append(matchers, matcher)
-		case len(r.Match.StatusCodes) > 1:
-			var predicates []*matcherv3.Matcher_MatcherList_Predicate
-
-			for _, codeMatch := range r.Match.StatusCodes {
-				if predicate, err = c.buildSinglePredicate(codeMatch); err != nil {
-					return nil, err
-				}
-
-				predicates = append(predicates, predicate)
-			}
-
-			// Create a single matcher that ORs all the predicates together.
-			// The rule will match if any of the codes match.
-			matcher := &matcherv3.Matcher_MatcherList_FieldMatcher{
-				Predicate: &matcherv3.Matcher_MatcherList_Predicate{
-					MatchType: &matcherv3.Matcher_MatcherList_Predicate_OrMatcher{
-						OrMatcher: &matcherv3.Matcher_MatcherList_Predicate_PredicateList{
-							Predicate: predicates,
-						},
-					},
-				},
-				OnMatch: &matcherv3.Matcher_OnMatch{
-					OnMatch: action,
-				},
-			}
-
-			matchers = append(matchers, matcher)
+		predicate, err := c.buildRulePredicate(r.Match)
+		if err != nil {
+			return nil, err
 		}
 
+		matchers = append(matchers, &matcherv3.Matcher_MatcherList_FieldMatcher{
+			Predicate: predicate,
+			OnMatch: &matcherv3.Matcher_OnMatch{
+				OnMatch: action,
+			},
+		})
 	}
 
 	// Create a MatcherList.
@@ -176,6 +140,62 @@ func (c *customResponse) customResponseConfig(ro *ir.ResponseOverride) (*respv3.
 	}
 
 	return cr, nil
+}
+
+func (c *customResponse) buildRulePredicate(match ir.CustomResponseMatch) (*matcherv3.Matcher_MatcherList_Predicate, error) {
+	statusCodePredicate, err := c.buildStatusCodesPredicate(match.StatusCodes)
+	if err != nil {
+		return nil, err
+	}
+
+	if match.Type != ir.CustomResponseMatchTypeLocal {
+		return statusCodePredicate, nil
+	}
+
+	localReplyPredicate, err := c.buildLocalReplyPredicate()
+	if err != nil {
+		return nil, err
+	}
+
+	return &matcherv3.Matcher_MatcherList_Predicate{
+		MatchType: &matcherv3.Matcher_MatcherList_Predicate_AndMatcher{
+			AndMatcher: &matcherv3.Matcher_MatcherList_Predicate_PredicateList{
+				Predicate: []*matcherv3.Matcher_MatcherList_Predicate{
+					localReplyPredicate,
+					statusCodePredicate,
+				},
+			},
+		},
+	}, nil
+}
+
+func (c *customResponse) buildStatusCodesPredicate(statusCodes []ir.StatusCodeMatch) (*matcherv3.Matcher_MatcherList_Predicate, error) {
+	if len(statusCodes) == 0 {
+		// This is just a sanity check, as the CRD validation should have caught this.
+		return nil, fmt.Errorf("missing status code in response override rule")
+	}
+
+	if len(statusCodes) == 1 {
+		return c.buildSinglePredicate(statusCodes[0])
+	}
+
+	predicates := make([]*matcherv3.Matcher_MatcherList_Predicate, 0, len(statusCodes))
+	for _, codeMatch := range statusCodes {
+		predicate, err := c.buildSinglePredicate(codeMatch)
+		if err != nil {
+			return nil, err
+		}
+		predicates = append(predicates, predicate)
+	}
+
+	// The rule matches if any configured status code matches.
+	return &matcherv3.Matcher_MatcherList_Predicate{
+		MatchType: &matcherv3.Matcher_MatcherList_Predicate_OrMatcher{
+			OrMatcher: &matcherv3.Matcher_MatcherList_Predicate_PredicateList{
+				Predicate: predicates,
+			},
+		},
+	}, nil
 }
 
 func (c *customResponse) buildSinglePredicate(codeMatch ir.StatusCodeMatch) (*matcherv3.Matcher_MatcherList_Predicate, error) {
@@ -257,6 +277,40 @@ func (c *customResponse) buildStatusCodeInput() (*cncfv3.TypedExtensionConfig, e
 
 	return &cncfv3.TypedExtensionConfig{
 		Name:        "http-response-status-code-match-input",
+		TypedConfig: pb,
+	}, nil
+}
+
+func (c *customResponse) buildLocalReplyPredicate() (*matcherv3.Matcher_MatcherList_Predicate, error) {
+	localReplyInput, err := c.buildLocalReplyInput()
+	if err != nil {
+		return nil, err
+	}
+
+	return &matcherv3.Matcher_MatcherList_Predicate{
+		MatchType: &matcherv3.Matcher_MatcherList_Predicate_SinglePredicate_{
+			SinglePredicate: &matcherv3.Matcher_MatcherList_Predicate_SinglePredicate{
+				Input: localReplyInput,
+				Matcher: &matcherv3.Matcher_MatcherList_Predicate_SinglePredicate_ValueMatch{
+					ValueMatch: &matcherv3.StringMatcher{
+						MatchPattern: &matcherv3.StringMatcher_Exact{
+							Exact: "true",
+						},
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func (c *customResponse) buildLocalReplyInput() (*cncfv3.TypedExtensionConfig, error) {
+	pb, err := proto.ToAnyWithValidation(&envoymatcherv3.HttpResponseLocalReplyMatchInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &cncfv3.TypedExtensionConfig{
+		Name:        "http-response-local-reply-match-input",
 		TypedConfig: pb,
 	}, nil
 }

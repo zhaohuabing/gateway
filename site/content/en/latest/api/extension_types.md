@@ -1311,7 +1311,23 @@ _Appears in:_
 
 | Field | Type | Required | Default | Description |
 | ---   | ---  | ---      | ---     | ---         |
+| `type` | _[CustomResponseMatchType](#customresponsematchtype)_ |  false  | All | Type is the type of response to match.<br />Valid values are All and Local.<br />When set to Local, only locally generated Envoy responses are matched. |
 | `statusCodes` | _[StatusCodeMatch](#statuscodematch) array_ |  true  |  | Status code to match on. The match evaluates to true if any of the matches are successful. |
+
+
+#### CustomResponseMatchType
+
+_Underlying type:_ _string_
+
+CustomResponseMatchType defines the types of responses that can be matched.
+
+_Appears in:_
+- [CustomResponseMatch](#customresponsematch)
+
+| Value | Description |
+| ----- | ----------- |
+| `All` | CustomResponseMatchTypeAll matches all responses.<br /> | 
+| `Local` | CustomResponseMatchTypeLocal matches locally generated Envoy responses.<br />An upstream-only match type can be added later if needed.<br /> | 
 
 
 #### CustomTag

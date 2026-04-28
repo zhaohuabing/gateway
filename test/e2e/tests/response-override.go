@@ -38,8 +38,9 @@ var ResponseOverrideTest = suite.ConformanceTest{
 		t.Run("response override", func(t *testing.T) {
 			ns := "gateway-conformance-infra"
 			routeNN := types.NamespacedName{Name: "response-override", Namespace: ns}
+			localReplyRouteNN := types.NamespacedName{Name: "response-override-local-reply", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}
-			gwAddr := kubernetes.GatewayAndRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), &gwapiv1.HTTPRoute{}, false, routeNN)
+			gwAddr := kubernetes.GatewayAndRoutesMustBeAccepted(t, suite.Client, suite.TimeoutConfig, suite.ControllerName, kubernetes.NewGatewayRef(gwNN), &gwapiv1.HTTPRoute{}, false, routeNN, localReplyRouteNN)
 
 			ancestorRef := gwapiv1.ParentReference{
 				Group:     gatewayapi.GroupPtr(gwapiv1.GroupName),
@@ -48,6 +49,8 @@ var ResponseOverrideTest = suite.ConformanceTest{
 				Name:      gwapiv1.ObjectName(gwNN.Name),
 			}
 			BackendTrafficPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "response-override", Namespace: ns}, suite.ControllerName, ancestorRef)
+			BackendTrafficPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "response-override-local-reply", Namespace: ns}, suite.ControllerName, ancestorRef)
+			SecurityPolicyMustBeAccepted(t, suite.Client, types.NamespacedName{Name: "response-override-local-reply", Namespace: ns}, suite.ControllerName, ancestorRef)
 
 			// Test 404 response override with add and set headers
 			verifyCustomResponse(t, &suite.TimeoutConfig, gwAddr, "/status/404", "text/plain", "404 Oops! Your request is not found.", 404, map[string]string{
@@ -69,12 +72,20 @@ var ResponseOverrideTest = suite.ConformanceTest{
 				"X-Set-Header": "set-403",
 			})
 			verifyCustomResponse(t, &suite.TimeoutConfig, gwAddr, "/status/401", "", "", 301)
+			verifyCustomResponse(t, &suite.TimeoutConfig, gwAddr, "/local-response-override/status/401", "text/plain", "local unauthorized", 401)
+			verifyLocalResponseOverrideDoesNotChangeBackendResponse(t, &suite.TimeoutConfig, gwAddr, "/local-response-override/status/401")
 		})
 	},
 }
 
 func verifyCustomResponse(t *testing.T, timeoutConfig *config.TimeoutConfig, gwAddr,
 	path, expectedContentType, expectedBody string, expectedStatusCode int, expectedHeaders ...map[string]string,
+) {
+	verifyCustomResponseWithRequestHeaders(t, timeoutConfig, gwAddr, path, nil, expectedContentType, expectedBody, expectedStatusCode, expectedHeaders...)
+}
+
+func verifyCustomResponseWithRequestHeaders(t *testing.T, timeoutConfig *config.TimeoutConfig, gwAddr,
+	path string, requestHeaders map[string]string, expectedContentType, expectedBody string, expectedStatusCode int, expectedHeaders ...map[string]string,
 ) {
 	if timeoutConfig == nil {
 		t.Fatalf("timeoutConfig cannot be nil")
@@ -87,7 +98,16 @@ func verifyCustomResponse(t *testing.T, timeoutConfig *config.TimeoutConfig, gwA
 	}
 
 	httputils.AwaitConvergence(t, timeoutConfig.RequiredConsecutiveSuccesses, timeoutConfig.MaxTimeToConsistency, func(_ time.Duration) bool {
-		rsp, err := http.Get(reqURL.String())
+		req, err := http.NewRequest(http.MethodGet, reqURL.String(), nil)
+		if err != nil {
+			tlog.Logf(t, "failed to build request: %v", err)
+			return false
+		}
+		for k, v := range requestHeaders {
+			req.Header.Set(k, v)
+		}
+
+		rsp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			tlog.Logf(t, "failed to get response: %v", err)
 			return false
@@ -132,4 +152,48 @@ func verifyCustomResponse(t *testing.T, timeoutConfig *config.TimeoutConfig, gwA
 	})
 
 	tlog.Logf(t, "Request passed")
+}
+
+func verifyLocalResponseOverrideDoesNotChangeBackendResponse(t *testing.T, timeoutConfig *config.TimeoutConfig, gwAddr, path string) {
+	if timeoutConfig == nil {
+		t.Fatalf("timeoutConfig cannot be nil")
+	}
+
+	reqURL := url.URL{
+		Scheme: "http",
+		Host:   httputils.CalculateHost(t, gwAddr, "http"),
+		Path:   path,
+	}
+
+	httputils.AwaitConvergence(t, timeoutConfig.RequiredConsecutiveSuccesses, timeoutConfig.MaxTimeToConsistency, func(_ time.Duration) bool {
+		req, err := http.NewRequest(http.MethodGet, reqURL.String(), nil)
+		if err != nil {
+			tlog.Logf(t, "failed to build request: %v", err)
+			return false
+		}
+		req.Header.Set("Authorization", "Bearer "+v1Token)
+
+		rsp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			tlog.Logf(t, "failed to get response: %v", err)
+			return false
+		}
+
+		defer rsp.Body.Close()
+		body, err := io.ReadAll(rsp.Body)
+		if err != nil {
+			tlog.Logf(t, "failed to read response body: %v", err)
+			return false
+		}
+		if rsp.StatusCode != 401 {
+			tlog.Logf(t, "expected status code to be 401 but got %d", rsp.StatusCode)
+			return false
+		}
+		if string(body) == "local unauthorized" {
+			tlog.Logf(t, "expected backend response not to be overridden by local response override")
+			return false
+		}
+
+		return true
+	})
 }

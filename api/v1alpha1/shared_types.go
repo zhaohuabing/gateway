@@ -793,11 +793,32 @@ type ResponseOverride struct {
 
 // CustomResponseMatch defines the configuration for matching a user response to return a custom one.
 type CustomResponseMatch struct {
+	// Type is the type of response to match.
+	// Valid values are All and Local.
+	// When set to Local, only locally generated Envoy responses are matched.
+	//
+	// +kubebuilder:default=All
+	// +kubebuilder:validation:Enum=All;Local
+	// +optional
+	Type *CustomResponseMatchType `json:"type,omitempty"`
+
 	// Status code to match on. The match evaluates to true if any of the matches are successful.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	StatusCodes []StatusCodeMatch `json:"statusCodes"`
 }
+
+// CustomResponseMatchType defines the types of responses that can be matched.
+type CustomResponseMatchType string
+
+const (
+	// CustomResponseMatchTypeAll matches all responses.
+	CustomResponseMatchTypeAll CustomResponseMatchType = "All"
+
+	// CustomResponseMatchTypeLocal matches locally generated Envoy responses.
+	// An upstream-only match type can be added later if needed.
+	CustomResponseMatchTypeLocal CustomResponseMatchType = "Local"
+)
 
 // StatusCodeValueType defines the types of values for the status code match supported by Envoy Gateway.
 // +kubebuilder:validation:Enum=Value;Range
