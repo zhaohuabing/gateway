@@ -295,25 +295,14 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 	// Process the policies targeting Routes
 	for i, currPolicy := range backendTrafficPolicies {
 		policyName := utils.NamespacedName(currPolicy)
-		allowed, denied := resolvePolicyTargetsFromSelectors(
-			currPolicy.Spec.TargetSelectors,
+		targetRefs := resolvePolicyTargets(
+			currPolicy.Spec.PolicyTargetReferences,
 			routes,
 			resources.ReferenceGrants,
 			egv1a1.GroupName,
 			egv1a1.KindBackendTrafficPolicy,
 			currPolicy.Namespace,
 			t.GetNamespace)
-		plainTargetRefs := resolvePolicyTargetsFromReferences(currPolicy.Spec.PolicyTargetReferences, currPolicy.Namespace)
-		targetRefs := composePolicyTargetRefs(allowed, plainTargetRefs)
-		if len(denied) > 0 {
-			policy, found := handledPolicies[policyName]
-			if !found {
-				policy = policyCopies[i]
-				handledPolicies[policyName] = policy
-				res = append(res, policy)
-			}
-			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
-		}
 		for _, currTarget := range targetRefs {
 			if isRoute(currTarget) {
 				policy, found := handledPolicies[policyName]
@@ -351,25 +340,14 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 	// Process the policies targeting Gateways
 	for i, currPolicy := range backendTrafficPolicies {
 		policyName := utils.NamespacedName(currPolicy)
-		allowed, denied := resolvePolicyTargetsFromSelectors(
-			currPolicy.Spec.TargetSelectors,
+		targetRefs := resolvePolicyTargets(
+			currPolicy.Spec.PolicyTargetReferences,
 			gateways,
 			resources.ReferenceGrants,
 			egv1a1.GroupName,
 			egv1a1.KindBackendTrafficPolicy,
 			currPolicy.Namespace,
 			t.GetNamespace)
-		plainTargetRefs := resolvePolicyTargetsFromReferences(currPolicy.Spec.PolicyTargetReferences, currPolicy.Namespace)
-		targetRefs := composePolicyTargetRefs(allowed, plainTargetRefs)
-		if len(denied) > 0 {
-			policy, found := handledPolicies[policyName]
-			if !found {
-				policy = policyCopies[i]
-				handledPolicies[policyName] = policy
-				res = append(res, policy)
-			}
-			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
-		}
 		for _, currTarget := range targetRefs {
 			if isGateway(currTarget) {
 				policy, found := handledPolicies[policyName]
