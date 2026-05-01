@@ -1080,7 +1080,10 @@ func setPolicyTargetRefNotPermittedStatus[T client.Object](
 		switch obj := any(deniedMatch.Target).(type) {
 		case *GatewayContext:
 			ancestorRef := getAncestorRefForPolicy(utils.NamespacedName(obj), nil)
-			setPolicyTargetRefNotPermittedStatusForAncestor(policyStatus, &ancestorRef, controllerName, generation, msg)
+			status.SetResolveErrorForPolicyAncestor(policyStatus, &ancestorRef, controllerName, generation, &status.PolicyResolveError{
+				Reason:  egv1a1.PolicyReasonRefNotPermitted,
+				Message: msg,
+			})
 		case RouteContext:
 			parentRefs := GetManagedParentReferences(obj)
 			ancestorRefs := make([]*gwapiv1.ParentReference, 0, len(parentRefs))
@@ -1098,39 +1101,12 @@ func setPolicyTargetRefNotPermittedStatus[T client.Object](
 				}, p.SectionName)
 				ancestorRefs = append(ancestorRefs, &ancestorRef)
 			}
-			for _, ancestorRef := range ancestorRefs {
-				setPolicyTargetRefNotPermittedStatusForAncestor(policyStatus, ancestorRef, controllerName, generation, msg)
-			}
+			status.SetResolveErrorForPolicyAncestors(policyStatus, ancestorRefs, controllerName, generation, &status.PolicyResolveError{
+				Reason:  egv1a1.PolicyReasonRefNotPermitted,
+				Message: msg,
+			})
 		}
 	}
-}
-
-func setPolicyTargetRefNotPermittedStatusForAncestor(
-	policyStatus *gwapiv1.PolicyStatus,
-	ancestorRef *gwapiv1.ParentReference,
-	controllerName string,
-	generation int64,
-	message string,
-) {
-	// If an ancestor has at least one effective target: Accepted=True,
-	// If some targets under that same ancestor were skipped due to missing ReferenceGrant: add Warning=True, reason RefNotPermitted.
-	if status.IsPolicyAncestorAccepted(policyStatus, ancestorRef, controllerName) {
-		status.SetWarningForPolicyAncestor(
-			policyStatus,
-			ancestorRef,
-			controllerName,
-			egv1a1.PolicyReasonRefNotPermitted,
-			message,
-			generation,
-		)
-		return
-	}
-
-	// If an ancestor has no effective target due to all targets being skipped by missing ReferenceGrant, the policy should be Rejected with reason RefNotPermitted.
-	status.SetResolveErrorForPolicyAncestor(policyStatus, ancestorRef, controllerName, generation, &status.PolicyResolveError{
-		Reason:  egv1a1.PolicyReasonRefNotPermitted,
-		Message: message,
-	})
 }
 
 // legacy function to get policy target refs without considering cross-namespace policy attachment.

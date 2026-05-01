@@ -305,6 +305,15 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 			t.GetNamespace)
 		plainTargetRefs := resolvePolicyTargetsFromReferences(currPolicy.Spec.PolicyTargetReferences, currPolicy.Namespace)
 		targetRefs := composePolicyTargetRefs(allowed, plainTargetRefs)
+		if len(denied) > 0 {
+			policy, found := handledPolicies[policyName]
+			if !found {
+				policy = policyCopies[i]
+				handledPolicies[policyName] = policy
+				res = append(res, policy)
+			}
+			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
+		}
 		for _, currTarget := range targetRefs {
 			if isRoute(currTarget) {
 				policy, found := handledPolicies[policyName]
@@ -317,15 +326,6 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 				t.processBackendTrafficPolicyForRoute(xdsIR,
 					routeMap, gatewayRouteMap, gatewayPolicyMerged, gatewayPolicyMap, policy, currTarget)
 			}
-		}
-		if len(denied) > 0 {
-			policy, found := handledPolicies[policyName]
-			if !found {
-				policy = policyCopies[i]
-				handledPolicies[policyName] = policy
-				res = append(res, policy)
-			}
-			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
 		}
 	}
 
@@ -361,6 +361,15 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 			t.GetNamespace)
 		plainTargetRefs := resolvePolicyTargetsFromReferences(currPolicy.Spec.PolicyTargetReferences, currPolicy.Namespace)
 		targetRefs := composePolicyTargetRefs(allowed, plainTargetRefs)
+		if len(denied) > 0 {
+			policy, found := handledPolicies[policyName]
+			if !found {
+				policy = policyCopies[i]
+				handledPolicies[policyName] = policy
+				res = append(res, policy)
+			}
+			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
+		}
 		for _, currTarget := range targetRefs {
 			if isGateway(currTarget) {
 				policy, found := handledPolicies[policyName]
@@ -372,15 +381,6 @@ func (t *Translator) ProcessBackendTrafficPolicies(
 				t.processBackendTrafficPolicyForGateway(xdsIR,
 					gatewayMap, gatewayRouteMap, gatewayPolicyMerged, policy, currTarget)
 			}
-		}
-		if len(denied) > 0 {
-			policy, found := handledPolicies[policyName]
-			if !found {
-				policy = policyCopies[i]
-				handledPolicies[policyName] = policy
-				res = append(res, policy)
-			}
-			setPolicyTargetRefNotPermittedStatus(&policy.Status, denied, t.GatewayControllerName, policy.Generation)
 		}
 	}
 
