@@ -20,11 +20,14 @@ fi
 # Valid patterns for versioned release notes files:
 # - vX.Y.Z.yaml (e.g., v1.2.3.yaml)
 # - vX.Y.Z-rc.M.yaml (e.g., v1.0.0-rc.1.yaml)
+# - vX.Y.Z-tetrate.yaml (e.g., v1.9.0-tetrate.yaml), the Tetrate release note;
+#   its name must match the release tag, since generate-artifacts copies
+#   release-notes/$(TAG).yaml into the release bundle.
 #
 # In-development release notes now live as per-change fragment files under
 # release-notes/current/<section>/<pr-number>-<slug>.md (see release-notes/current/README.md).
 
-VALID_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?\.yaml$'
+VALID_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+((-rc\.[0-9]+)|-tetrate)?\.yaml$'
 
 # Canonical section directories under release-notes/current/.
 VALID_SECTIONS=(
@@ -51,7 +54,7 @@ INVALID_FILES=()
 # Check all .yaml files in release-notes directory
 while IFS= read -r -d '' file; do
     filename="$(basename "${file}")"
-    
+
     # Skip if it's a legacy file
     is_legacy=false
     for legacy in "${LEGACY_FILES[@]}"; do
@@ -60,11 +63,11 @@ while IFS= read -r -d '' file; do
             break
         fi
     done
-    
+
     if [[ "${is_legacy}" == "true" ]]; then
         continue
     fi
-    
+
     if [[ ! "${filename}" =~ ${VALID_PATTERN} ]]; then
         INVALID_FILES+=("${filename}")
     fi
@@ -121,7 +124,8 @@ if [[ ${#INVALID_FILES[@]} -gt 0 ]]; then
     done
     echo ""
     echo "Valid formats:"
-    echo "  - Released versions: vX.Y.Z.yaml / vX.Y.Z-rc.M.yaml (e.g., v1.2.3.yaml, v1.0.0-rc.1.yaml)"
+    echo "  - Released versions: vX.Y.Z.yaml / vX.Y.Z-rc.M.yaml / vX.Y.Z-tetrate.yaml"
+    echo "    (e.g., v1.2.3.yaml, v1.0.0-rc.1.yaml, v1.9.0-tetrate.yaml)"
     echo "  - Unreleased fragments: current/<section>/<pr-number>-<slug>.md"
     echo "    sections: breaking_changes, security_updates, new_features, bug_fixes,"
     echo "              performance_improvements, deprecations, other_changes"

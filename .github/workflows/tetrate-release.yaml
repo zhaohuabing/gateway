@@ -1,0 +1,75 @@
+name: "Tetrate Release"
+
+permissions:
+  contents: read
+
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: ./tools/github-actions/reclaim-storage
+
+      - name: Extract Release Tag and Commit SHA
+        id: vars
+        shell: bash
+        run: |
+          echo "release_tag=$(echo ${GITHUB_REF##*/})" >> $GITHUB_ENV
+          echo "without_v_release_tag=$(echo ${GITHUB_REF##*/v})" >> $GITHUB_ENV
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Login to DockerHub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          username: ${{ secrets.TETRATE_DOCKERHUB_USER }}
+          password: ${{ secrets.TETRATE_DOCKERHUB_PASS }}
+      - name: Retag and push existing gateway-dev image
+        run: |
+          skopeo copy --all docker://docker.io/tetrate/gateway-dev:${{ env.sha_short }} docker://docker.io/tetrate/gateway:${{ env.release_tag }}
+
+      - name: Generate Release Artifacts
+        run: IMAGE_PULL_POLICY=IfNotPresent make generate-artifacts IMAGE=envoyproxy/gateway TAG=${{ env.release_tag }} OUTPUT_DIR=release-artifacts
+
+      - name: Build and Push EG Release Helm Chart
+        run: |
+          IMAGE_PULL_POLICY=IfNotPresent OCI_REGISTRY=oci://docker.io/tetrate CHART_VERSION=${{ env.release_tag }} IMAGE=docker.io/tetrate/gateway TAG=${{ env.release_tag }} make helm-package helm-push
+          IMAGE_PULL_POLICY=IfNotPresent OCI_REGISTRY=oci://docker.io/tetrate CHART_VERSION=${{ env.without_v_release_tag }} IMAGE=docker.io/tetrate/gateway TAG=${{ env.release_tag }} make helm-package helm-push
+
+      - name: Build egctl multiarch binaries
+        run: |
+          make build-multiarch
+          tar -zcvf envoy-gateway_${{ env.release_tag }}_linux_amd64.tar.gz bin/linux/amd64/envoy-gateway
+          tar -zcvf envoy-gateway_${{ env.release_tag }}_linux_arm64.tar.gz bin/linux/arm64/envoy-gateway
+          tar -zcvf envoy-gateway_${{ env.release_tag }}_darwin_amd64.tar.gz bin/darwin/amd64/envoy-gateway
+          tar -zcvf envoy-gateway_${{ env.release_tag }}_darwin_arm64.tar.gz bin/darwin/arm64/envoy-gateway
+          tar -zcvf egctl_${{ env.release_tag }}_linux_amd64.tar.gz bin/linux/amd64/egctl
+          tar -zcvf egctl_${{ env.release_tag }}_linux_arm64.tar.gz bin/linux/arm64/egctl
+          tar -zcvf egctl_${{ env.release_tag }}_darwin_amd64.tar.gz bin/darwin/amd64/egctl
+          tar -zcvf egctl_${{ env.release_tag }}_darwin_arm64.tar.gz bin/darwin/arm64/egctl
+          zip -r egctl_${{ env.release_tag }}_windows_amd64.zip bin/windows/amd64/egctl
+
+      - name: Upload Release Manifests
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
+        with:
+          files: |
+            release-artifacts/install.yaml
+            release-artifacts/quickstart.yaml
+            release-artifacts/envoy-gateway-crds.yaml
+            release-artifacts/release-notes.yaml
+            envoy-gateway_${{ env.release_tag }}_linux_amd64.tar.gz
+            envoy-gateway_${{ env.release_tag }}_linux_arm64.tar.gz
+            envoy-gateway_${{ env.release_tag }}_darwin_amd64.tar.gz
+            envoy-gateway_${{ env.release_tag }}_darwin_arm64.tar.gz
+            egctl_${{ env.release_tag }}_linux_amd64.tar.gz
+            egctl_${{ env.release_tag }}_linux_arm64.tar.gz
+            egctl_${{ env.release_tag }}_darwin_amd64.tar.gz
+            egctl_${{ env.release_tag }}_darwin_arm64.tar.gz
+            egctl_${{ env.release_tag }}_windows_amd64.zip

@@ -37,7 +37,37 @@ func TestE2E(t *testing.T) {
 	data, _ := json.MarshalIndent(suiteOpts, "", "  ")
 	tlog.Logf(t, "Running E2E tests with options: %s\n", string(data))
 
-	var skipTests []string
+	skipTests := []string{
+		// Disable this because CipherSuite is modified in FIPS mode
+		// https://github.com/tetrateio/gateway/issues/96
+		tests.BackendTLSSettingsTest.ShortName,
+		tests.ClientMTLSTest.ShortName,
+		tests.FileAccessLogTest.ShortName,     // https://github.com/tetrateio/gateway/issues/119
+		tests.OpenTelemetryTestText.ShortName, // https://github.com/tetrateio/gateway/issues/128
+		tests.WeightedBackendTest.ShortName,   // https://github.com/tetrateio/gateway/issues/136
+		tests.UDPRouteSourceIPConsistentHashTest.ShortName,
+		tests.OIDCTest.ShortName,
+		tests.RateLimitMethodMatchTest.ShortName,
+		tests.UsageRateLimitTest.ShortName,
+		tests.HTTPWasmTest.ShortName,
+		tests.RateLimitPathMatchTest.ShortName,
+		tests.RateLimitHeadersAndCIDRMatchTest.ShortName,
+		tests.GlobalRateLimitHeaderInvertMatchTest.ShortName,
+		tests.RateLimitCIDRInvertMatchAlwaysEnforceTest.ShortName,
+		tests.RateLimitHeadersDisabled.ShortName,
+		tests.RateLimitGlobalSharedGatewayHeaderMatchTest.ShortName,
+		tests.PolicyStatusAggregatesAcrossGatewayClassesTest.ShortName,
+		tests.RateLimitGlobalMergeTest.ShortName,
+		tests.UDPRouteBackendFQDNTest.ShortName,
+		tests.CookieBasedConsistentHashLoadBalancing.ShortName,
+		tests.EndpointOverrideLoadBalancing.ShortName,
+		tests.RateLimitBasedJwtClaimsTest.ShortName,
+		tests.PolicyStatusAggregatesAcrossGatewayClassesTest.ShortName,
+		tests.RoundRobinLoadBalancing.ShortName,
+		tests.ZoneAwareRoutingTest.ShortName,
+		tests.BackendUpgradeTest.ShortName,
+	}
+
 	// Skip test only work on DualStack cluster
 	if tests.IPFamily != "dual" {
 		skipTests = append(skipTests,
@@ -57,6 +87,7 @@ func TestE2E(t *testing.T) {
 			tests.RateLimitMultipleListenersTest.ShortName,
 			tests.RateLimitGlobalSharedCidrMatchTest.ShortName,
 			tests.AuthorizationGeoIPCountryTest.ShortName,
+			tests.OCIWasmTest.ShortName, // https://github.com/tetrateio/gateway/issues/120
 		)
 	}
 

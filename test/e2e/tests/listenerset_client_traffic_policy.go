@@ -40,6 +40,7 @@ var ListenerSetClientTrafficPolicyTest = suite.ConformanceTest{
 		"testdata/listenerset-client-traffic-policy.yaml",
 	},
 	Test: func(t *testing.T, suite *suite.ConformanceTestSuite) {
+		t.Skip("skip because the FIPS build only supports TLS 1.2")
 		ns := "gateway-conformance-infra"
 		gwNN := types.NamespacedName{Name: "listener-gateway", Namespace: ns}
 		policyNN := types.NamespacedName{Name: "listenerset-ctp", Namespace: ns}
