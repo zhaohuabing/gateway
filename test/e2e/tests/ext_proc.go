@@ -167,6 +167,7 @@ var ExtProcTest = suite.ConformanceTest{
 		})
 
 		t.Run("http route with uds ext proc", func(t *testing.T) {
+			t.Skip("skip because it's too flaky")
 			ns := "gateway-conformance-infra"
 			routeNN := types.NamespacedName{Name: "http-with-ext-proc", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}

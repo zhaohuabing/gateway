@@ -11,6 +11,8 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+
+	"github.com/envoyproxy/gateway/internal/fips"
 )
 
 // LoadTLSConfig returns TLSConfig form certificates.
@@ -32,13 +34,13 @@ func LoadTLSConfig(tlsCrt, tlsKey, caCrt string) (*tls.Config, error) {
 			return nil, fmt.Errorf("failed to parse CA certificate")
 		}
 
-		return &tls.Config{
+		return fips.EnforceGoFIPSCompliance(&tls.Config{
 			Certificates: []tls.Certificate{cert},
 			NextProtos:   []string{"h2"},
 			ClientAuth:   tls.RequireAndVerifyClientCert,
 			ClientCAs:    certPool,
 			MinVersion:   tls.VersionTLS13,
-		}, nil
+		}), nil
 	}
 
 	// Attempt to load certificates and key to catch configuration errors early.
@@ -46,14 +48,14 @@ func LoadTLSConfig(tlsCrt, tlsKey, caCrt string) (*tls.Config, error) {
 		return nil, err
 	}
 
-	return &tls.Config{
+	return fips.EnforceGoFIPSCompliance(&tls.Config{
 		MinVersion: tls.VersionTLS13,
 		ClientAuth: tls.RequireAndVerifyClientCert,
 		Rand:       rand.Reader,
 		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 			return loadConfig()
 		},
-	}, nil
+	}), nil
 }
 
 // LoadServerTLSConfig returns a server-only TLSConfig from a certificate. Unlike

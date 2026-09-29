@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils/cert"
 	"github.com/envoyproxy/gateway/internal/utils/proto"
@@ -352,7 +353,7 @@ func protoHash(message gproto.Message) (string, error) {
 func buildXdsUpstreamTLSSocket(sni string) (*corev3.TransportSocket, error) {
 	tlsCtxProto := &tlsv3.UpstreamTlsContext{
 		Sni: sni,
-		CommonTlsContext: &tlsv3.CommonTlsContext{
+		CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsv3.CommonTlsContext{
 			TlsParams: &tlsv3.TlsParameters{
 				TlsMaximumProtocolVersion: tlsv3.TlsParameters_TLSv1_3,
 			},
@@ -365,7 +366,7 @@ func buildXdsUpstreamTLSSocket(sni string) (*corev3.TransportSocket, error) {
 					},
 				},
 			},
-		},
+		}),
 	}
 
 	tlsCtxAny, err := proto.ToAnyWithValidation(tlsCtxProto)

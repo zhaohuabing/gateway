@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/fips"
 	httputils "github.com/envoyproxy/gateway/internal/utils/http"
 	netutil "github.com/envoyproxy/gateway/internal/utils/net"
 )
@@ -3994,7 +3995,7 @@ func (t *TLSUpstreamConfig) ToTLSConfig() (*tls.Config, error) {
 		}
 		tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
 	}
-	return tlsConfig, nil
+	return fips.EnforceGoFIPSCompliance(tlsConfig), nil
 }
 
 // BackendConnection settings for upstream connections

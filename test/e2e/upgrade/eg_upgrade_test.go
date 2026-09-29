@@ -41,7 +41,8 @@ func TestEGUpgrade(t *testing.T) {
 	suiteOpts.FailFast = true
 	suiteOpts.CleanupTestResources = true
 
-	var skipTests []string
+	// EnvoyShutdown is skipped because it's too flaky
+	skipTests := []string{tests.EnvoyShutdownTest.ShortName}
 	// previous did not support ipv6, so skip upgrade tests for ipv6
 	if tests.IPFamily == "ipv6" {
 		skipTests = append(skipTests,

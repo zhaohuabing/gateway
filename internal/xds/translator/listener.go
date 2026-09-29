@@ -39,6 +39,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils/proto"
 	xdsfilters "github.com/envoyproxy/gateway/internal/xds/filters"
@@ -889,10 +890,10 @@ func addXdsTLSInspectorFilter(xdsListener *listenerv3.Listener, fingerprints []i
 func buildDownstreamQUICTransportSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSocket, error) {
 	tlsCtx := &quicv3.QuicDownstreamTransport{
 		DownstreamTlsContext: &tlsv3.DownstreamTlsContext{
-			CommonTlsContext: &tlsv3.CommonTlsContext{
+			CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsv3.CommonTlsContext{
 				TlsParams:     buildTLSParams(tlsConfig),
 				AlpnProtocols: []string{"h3"},
-			},
+			}),
 		},
 	}
 
@@ -932,11 +933,11 @@ func buildDownstreamQUICTransportSocket(tlsConfig *ir.TLSConfig) (*corev3.Transp
 
 func buildXdsDownstreamTLSSocket(tlsConfig *ir.TLSConfig) (*corev3.TransportSocket, error) {
 	tlsCtx := &tlsv3.DownstreamTlsContext{
-		CommonTlsContext: &tlsv3.CommonTlsContext{
+		CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsv3.CommonTlsContext{
 			TlsParams:                      buildTLSParams(tlsConfig),
 			AlpnProtocols:                  buildALPNProtocols(tlsConfig.ALPNProtocols),
 			TlsCertificateSdsSecretConfigs: []*tlsv3.SdsSecretConfig{},
-		},
+		}),
 	}
 
 	for _, cert := range tlsConfig.Certificates {

@@ -113,8 +113,8 @@ lint.markdown: $(tools/markdownlint)
 		--ignore site/content/en/v1.6/ \
 		--ignore site/content/en/v1.8/ \
 		--ignore site/content/en/v1.9/
-		
-		
+
+
 
 .PHONY: lint.dependabot
 # lint: lint.dependabot

@@ -33,6 +33,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/logging"
 )
 
@@ -70,7 +71,7 @@ func NewHTTPFetcher(requestTimeout time.Duration, requestMaxRetry int, logger lo
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// nolint: gosec
 	// This is only when a user explicitly sets a flag to enable insecure mode
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	transport.TLSClientConfig = fips.EnforceGoFIPSCompliance(&tls.Config{InsecureSkipVerify: true})
 	return &HTTPFetcher{
 		client: &http.Client{
 			Timeout: requestTimeout,

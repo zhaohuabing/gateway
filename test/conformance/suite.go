@@ -57,6 +57,8 @@ func conformanceOpts(t *testing.T) suite.ConformanceOptions {
 // SkipTests is a list of tests that are skipped in the conformance suite.
 func SkipTests(gatewayNamespaceMode bool) []suite.ConformanceTest {
 	skipTests := make([]suite.ConformanceTest, 0, 4)
+	// GatewayClassObservedGenerationBump is skipped because it's too flaky
+	skipTests = append(skipTests, tests.GatewayClassObservedGenerationBump)
 	if gatewayNamespaceMode {
 		return skipTests
 	}

@@ -66,6 +66,7 @@ func TestE2E(t *testing.T) {
 		tests.RoundRobinLoadBalancing.ShortName,
 		tests.ZoneAwareRoutingTest.ShortName,
 		tests.BackendUpgradeTest.ShortName,
+		tests.BackendUtilizationLoadBalancingTest.ShortName,
 	}
 
 	// Skip test only work on DualStack cluster
