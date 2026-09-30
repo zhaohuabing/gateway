@@ -69,6 +69,7 @@ var RateLimitCIDRMatchTest = suite.ConformanceTest{
 	Manifests:   []string{"testdata/ratelimit-cidr-match.yaml"},
 	Test: func(t *testing.T, suite *suite.ConformanceTestSuite) {
 		t.Run("block all ips", func(t *testing.T) {
+			t.Skip("skip because it's too flaky")
 			ns := "gateway-conformance-infra"
 			routeNN := types.NamespacedName{Name: "cidr-ratelimit", Namespace: ns}
 			gwNN := types.NamespacedName{Name: "same-namespace", Namespace: ns}

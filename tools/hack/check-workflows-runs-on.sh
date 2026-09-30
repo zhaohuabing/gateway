@@ -8,11 +8,11 @@ set -euo pipefail
 if matches=$(
   grep -rn --include="*.yml" --include="*.yaml" \
     'runs-on:' .github/workflows \
-  | grep -Ev "runs-on:[[:space:]]*['\"]?ubuntu-latest['\"]?$"
+  | grep -Ev "runs-on:[[:space:]]*['\"]?(ubuntu-latest|default-runner-set)['\"]?$"
 ); then
-  echo "ERROR: found workflows not using 'ubuntu-latest':"
+  echo "ERROR: found workflows not using 'ubuntu-latest' or 'default-runner-set':"
   echo "$matches"
   exit 1
 fi
 
-echo "OK: all workflow jobs use 'ubuntu-latest'"
+echo "OK: all workflow jobs use 'ubuntu-latest' or 'default-runner-set'"

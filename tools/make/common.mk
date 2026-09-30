@@ -81,6 +81,7 @@ endif
 # ====================================================================================================
 include tools/make/tools.mk
 include tools/make/golang.mk
+include tools/make/golang-fips.mk
 include tools/make/image.mk
 include tools/make/lint.mk
 include tools/make/kube.mk

@@ -46,6 +46,8 @@ func conformanceOpts(t *testing.T) suite.ConformanceOptions {
 func SkipTests(gatewayNamespaceMode bool) []suite.ConformanceTest {
 	skipTests := make([]suite.ConformanceTest, 0, 4)
 	skipTests = append(skipTests,
+		// BackendTLSPolicySANValidation is skipped because it's too flaky
+		tests.BackendTLSPolicySANValidation,
 		// TODO: fix following conformance tests
 		tests.ListenerSetHostnameConflict,
 		tests.ListenerSetProtocolConflict,

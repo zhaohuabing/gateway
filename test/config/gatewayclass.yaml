@@ -22,6 +22,10 @@ spec:
     kubernetes:
       envoyDeployment:
         container:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
           volumeMounts:
             - mountPath: /var/run/ext-proc
               name: socket-dir

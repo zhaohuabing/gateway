@@ -22,7 +22,8 @@ fi
 # - vX.Y.Z.yaml (e.g., v1.2.3.yaml)
 # - vX.Y.Z-rc.M.yaml (e.g., v1.0.0-rc.1.yaml)
 
-VALID_PATTERN='^(current|v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)\.yaml$'
+
+VALID_PATTERN='^(current|v[0-9]+\.[0-9]+\.[0-9]+((-rc\.[0-9]+)|-tetrate)?)\.yaml$'
 
 # Legacy files to ignore (grandfathered in)
 LEGACY_FILES=(
@@ -35,7 +36,7 @@ INVALID_FILES=()
 # Check all .yaml files in release-notes directory
 while IFS= read -r -d '' file; do
     filename="$(basename "${file}")"
-    
+
     # Skip if it's a legacy file
     is_legacy=false
     for legacy in "${LEGACY_FILES[@]}"; do
@@ -44,11 +45,11 @@ while IFS= read -r -d '' file; do
             break
         fi
     done
-    
+
     if [[ "${is_legacy}" == "true" ]]; then
         continue
     fi
-    
+
     if [[ ! "${filename}" =~ ${VALID_PATTERN} ]]; then
         INVALID_FILES+=("${filename}")
     fi
