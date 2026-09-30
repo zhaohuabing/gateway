@@ -15,6 +15,7 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/xds/types"
 )
@@ -116,7 +117,7 @@ func (t *Translator) createRateLimitServiceCluster(tCtx *types.ResourceVersionTa
 // buildEnvoyClientTLSSocket builds the TLS socket for Envoy to connect to the control plane components.
 func buildEnvoyClientTLSSocket(envoyClientCertificate *ir.TLSCertificate) (*corev3.TransportSocket, error) {
 	tlsCtx := &tlsv3.UpstreamTlsContext{
-		CommonTlsContext: &tlsv3.CommonTlsContext{
+		CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsv3.CommonTlsContext{
 			TlsParams: &tlsv3.TlsParameters{
 				TlsMaximumProtocolVersion: tlsv3.TlsParameters_TLSv1_3,
 			},
@@ -133,7 +134,7 @@ func buildEnvoyClientTLSSocket(envoyClientCertificate *ir.TLSCertificate) (*core
 					SdsConfig: makeConfigSource(),
 				},
 			},
-		},
+		}),
 	}
 
 	tlsCtxAny, err := anypb.New(tlsCtx)

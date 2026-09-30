@@ -17,6 +17,7 @@ import (
 	"github.com/envoyproxy/gateway/internal/envoygateway/config/loader"
 	extensionregistry "github.com/envoyproxy/gateway/internal/extension/registry"
 	"github.com/envoyproxy/gateway/internal/extension/types"
+	"github.com/envoyproxy/gateway/internal/fips"
 	gatewayapirunner "github.com/envoyproxy/gateway/internal/gatewayapi/runner"
 	ratelimitrunner "github.com/envoyproxy/gateway/internal/globalratelimit/runner"
 	infrarunner "github.com/envoyproxy/gateway/internal/infrastructure/runner"
@@ -325,6 +326,10 @@ func startRunners(ctx context.Context, cfg *config.Server, runnerErrors *message
 			return err
 		}
 		started = append(started, r.runner)
+	}
+
+	if fips.Enable() {
+		cfg.Logger.Info("FIPS mode enabled, all TLS connections will be using TLS 1.2 and FIPS-approved ciphers")
 	}
 
 	// Wait until done

@@ -34,6 +34,7 @@ import (
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	extensionTypes "github.com/envoyproxy/gateway/internal/extension/types"
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/logging"
 	"github.com/envoyproxy/gateway/internal/traces/phase"
@@ -1413,6 +1414,8 @@ func buildXdsUpstreamTLSSocketWthCert(tlsConfig *ir.TLSUpstreamConfig, requiresA
 				SdsConfig: makeConfigSource(),
 			})
 	}
+
+	tlsCtx.CommonTlsContext = fips.EnforceXDSFIPSCompliance(tlsCtx.CommonTlsContext)
 
 	tlsCtxAny, err := proto.ToAnyWithValidation(tlsCtx)
 	if err != nil {

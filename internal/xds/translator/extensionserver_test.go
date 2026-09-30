@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/envoyproxy/gateway/internal/fips"
 	pb "github.com/envoyproxy/gateway/proto/extension"
 )
 
@@ -362,7 +363,7 @@ func (t *testingExtensionServer) PostTranslateModify(_ context.Context, req *pb.
 
 		if extensionResource.GetObjectKind().GroupVersionKind().Kind == "ExampleExtPolicy" && targetKind == "Gateway" {
 			upstreamTLS := &tlsV3.UpstreamTlsContext{
-				CommonTlsContext: &tlsV3.CommonTlsContext{
+				CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsV3.CommonTlsContext{
 					TlsCertificateSdsSecretConfigs: []*tlsV3.SdsSecretConfig{
 						{
 							Name: "default",
@@ -384,7 +385,7 @@ func (t *testingExtensionServer) PostTranslateModify(_ context.Context, req *pb.
 							},
 						},
 					},
-				},
+				}),
 			}
 
 			typedConfig, err := anypb.New(upstreamTLS)

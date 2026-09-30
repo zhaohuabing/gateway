@@ -21,6 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/ir"
 	"github.com/envoyproxy/gateway/internal/utils/cert"
 	"github.com/envoyproxy/gateway/internal/utils/proto"
@@ -242,7 +243,7 @@ func buildJWTAuthn(irListener *ir.HTTPListener, jwtAuthn *jwtauthnv3.JwtAuthenti
 func buildXdsUpstreamTLSSocket(sni string) (*corev3.TransportSocket, error) {
 	tlsCtxProto := &tlsv3.UpstreamTlsContext{
 		Sni: sni,
-		CommonTlsContext: &tlsv3.CommonTlsContext{
+		CommonTlsContext: fips.EnforceXDSFIPSCompliance(&tlsv3.CommonTlsContext{
 			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
 				ValidationContext: &tlsv3.CertificateValidationContext{
 					TrustedCa: &corev3.DataSource{
@@ -252,7 +253,7 @@ func buildXdsUpstreamTLSSocket(sni string) (*corev3.TransportSocket, error) {
 					},
 				},
 			},
-		},
+		}),
 	}
 
 	tlsCtxAny, err := proto.ToAnyWithValidation(tlsCtxProto)

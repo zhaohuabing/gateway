@@ -40,6 +40,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
+	"github.com/envoyproxy/gateway/internal/fips"
 	"github.com/envoyproxy/gateway/internal/logging"
 )
 
@@ -83,9 +84,9 @@ func NewImageFetcher(ctx context.Context, opt ImageFetcherOption, logger logging
 		t := remote.DefaultTransport.(*http.Transport).Clone()
 		// nolint: gosec
 		// This is only when a user explicitly sets a flag to enable insecure mode
-		t.TLSClientConfig = &tls.Config{
+		t.TLSClientConfig = fips.EnforceGoFIPSCompliance(&tls.Config{
 			InsecureSkipVerify: opt.Insecure,
-		}
+		})
 		fetchOpts = append(fetchOpts, remote.WithTransport(t))
 	} else if len(opt.CACert) > 0 {
 		t := remote.DefaultTransport.(*http.Transport).Clone()
