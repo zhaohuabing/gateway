@@ -10,13 +10,107 @@ on:
       - "v*.*.*"
 
 jobs:
+  # Fail a bad tag before the test matrix runs.
+  check-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject four-part tags without -tetrate
+        shell: bash
+        run: |
+          tag="${GITHUB_REF##*/}"
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$tag is a four-part tag; revisions must end in -tetrate."
+            exit 1
+          fi
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [check-tag]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: ./tools/github-actions/setup-deps
+
+      - name: Build EG Multiarch Binaries
+        run: make build-multiarch PLATFORMS="linux_amd64 linux_arm64"
+
+      - name: Upload EG Binaries
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3  # v4.3.1
+        with:
+          name: envoy-gateway
+          path: bin/
+
+  conformance-test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        version: [ v1.27.13, v1.28.9, v1.29.4, v1.30.0 ]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: ./tools/github-actions/setup-deps
+
+      - name: Download EG Binaries
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427  # v4.1.4
+        with:
+          name: envoy-gateway
+          path: bin/
+
+      - name: Give Privileges To EG Binaries
+        run: |
+          chmod +x bin/linux/amd64/envoy-gateway
+
+      # conformance
+      - name: Run Standard Conformance Tests
+        env:
+          KIND_NODE_TAG: ${{ matrix.version }}
+          IMAGE_PULL_POLICY: IfNotPresent
+        run: make conformance
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        version: [ v1.26.14, v1.27.11, v1.28.7, v1.29.2 ]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+      - uses: ./tools/github-actions/setup-deps
+
+      - name: Download EG Binaries
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427  # v4.1.4
+        with:
+          name: envoy-gateway
+          path: bin/
+
+      - name: Give Privileges To EG Binaries
+        run: |
+          chmod +x bin/linux/amd64/envoy-gateway
+
+      # E2E
+      - name: Run E2E Tests
+        env:
+          KIND_NODE_TAG: ${{ matrix.version }}
+          IMAGE_PULL_POLICY: IfNotPresent
+        run: make e2e
+
   release:
     runs-on: ubuntu-latest
+    needs: [conformance-test, e2e-test]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: ./tools/github-actions/reclaim-storage
+
+      - name: Download EG Binaries
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427  # v4.1.4
+        with:
+          name: envoy-gateway
+          path: bin/
+
+      - name: Give Privileges To EG Binaries
+        run: |
+          chmod +x bin/linux/amd64/envoy-gateway bin/linux/arm64/envoy-gateway
 
       - name: Extract Release Tag and Commit SHA
         id: vars
@@ -24,21 +118,50 @@ jobs:
         run: |
           echo "release_tag=$(echo ${GITHUB_REF##*/})" >> $GITHUB_ENV
           echo "without_v_release_tag=$(echo ${GITHUB_REF##*/v})" >> $GITHUB_ENV
-          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          # A revision is a Tetrate rebuild of vX.Y.Z with extra fixes, tagged vX.Y.Z.N-tetrate. It ships only to the private registry.
+          if [[ "${GITHUB_REF##*/}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-tetrate$ ]]; then
+            echo "is_revision=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF##*/}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # A four-part tag without -tetrate would otherwise take the public release path.
+            echo "::error::${GITHUB_REF##*/} is a four-part tag; revisions must end in -tetrate."
+            exit 1
+          else
+            echo "is_revision=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Revisions carry unreleased CVE and bug fixes, so they go to the
+      # private Cloudsmith registry and skip every public step below.
+      - name: Login to Cloudsmith Registry
+        if: steps.vars.outputs.is_revision == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: tetrate-envoy-gateway.containers.dl.tetrate.io
+          username: tetrate-ci
+          password: ${{ secrets.TETRATE_CI_CLOUDSMITH_API_KEY }}
+
+      - name: Setup Multiarch Environment
+        run: make image.multiarch.setup
+
+      - name: Build and Push Revision Image to Cloudsmith Registry
+        if: steps.vars.outputs.is_revision == 'true'
+        run: make image.push.multiarch PLATFORMS="linux_amd64 linux_arm64" TAG=${{ env.release_tag }} IMAGE=tetrate-envoy-gateway.containers.dl.tetrate.io/gateway
 
       - name: Login to DockerHub
+        if: steps.vars.outputs.is_revision != 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           username: ${{ secrets.TETRATE_DOCKERHUB_USER }}
           password: ${{ secrets.TETRATE_DOCKERHUB_PASS }}
-      - name: Retag and push existing gateway-dev image
-        run: |
-          skopeo copy --all docker://docker.io/tetrate/gateway-dev:${{ env.sha_short }} docker://docker.io/tetrate/gateway:${{ env.release_tag }}
+      - name: Build and Push EG Release Image
+        if: steps.vars.outputs.is_revision != 'true'
+        run: make image.push.multiarch PLATFORMS="linux_amd64 linux_arm64" TAG=${{ env.release_tag }} IMAGE=docker.io/tetrate/gateway
 
       - name: Generate Release Artifacts
+        if: steps.vars.outputs.is_revision != 'true'
         run: IMAGE_PULL_POLICY=IfNotPresent make generate-artifacts IMAGE=envoyproxy/gateway TAG=${{ env.release_tag }} OUTPUT_DIR=release-artifacts
 
       - name: Build and Push EG Release Helm Chart
+        if: steps.vars.outputs.is_revision != 'true'
         run: |
           IMAGE_PULL_POLICY=IfNotPresent OCI_REGISTRY=oci://docker.io/tetrate CHART_VERSION=${{ env.release_tag }} IMAGE=docker.io/tetrate/gateway TAG=${{ env.release_tag }} make helm-package helm-push
           IMAGE_PULL_POLICY=IfNotPresent OCI_REGISTRY=oci://docker.io/tetrate CHART_VERSION=${{ env.without_v_release_tag }} IMAGE=docker.io/tetrate/gateway TAG=${{ env.release_tag }} make helm-package helm-push
@@ -57,6 +180,7 @@ jobs:
           zip -r egctl_${{ env.release_tag }}_windows_amd64.zip bin/windows/amd64/egctl
 
       - name: Upload Release Manifests
+        if: steps.vars.outputs.is_revision != 'true'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           files: |

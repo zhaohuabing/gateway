@@ -341,6 +341,9 @@ jobs:
       run: make image.multiarch.setup
 
     - name: Build and Push EG Commit Image
+      # Release branches build the image at tag time instead, so unreleased
+      # commits never reach the public registry.
+      if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/tetrate-release/')
       # tag is set to the short SHA of the commit
       run: make image.push.multiarch PLATFORMS="linux_amd64 linux_arm64" IMAGE=tetrate/gateway-dev
 
