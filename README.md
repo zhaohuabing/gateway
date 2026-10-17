@@ -13,6 +13,16 @@ Envoy Gateway is an open source project for managing Envoy Proxy as a standalone
 Kubernetes-based application gateway.
 [Gateway API](https://gateway-api.sigs.k8s.io) resources are used to dynamically provision and configure the managed Envoy Proxies.
 
+## Tetrate revisions
+
+Revisions carry targeted CVE and bug fixes on top of a `vX.Y.Z-tetrate` release, so Tetrate ships those fixes before upstream does. They are tagged `vX.Y.Z.N-tetrate`, e.g. `v1.9.2.1-tetrate`.
+
+1. Check out the `tetrate-release/vX.Y.Z` branch.
+2. Cherry-pick the fixes with `git cherry-pick -x -s <sha>`.
+3. Tag the branch with `vX.Y.Z.N-tetrate`.
+
+A revision tag pushes only the `gateway` image to the private enterprise registry, `tetrate-envoy-gateway.containers.dl.tetrate.io/gateway`. It does not touch Docker Hub, the public Helm chart or the GitHub release. The FIPS image is still built by `tetrate-release-fips.yaml` in `fips-containers.teg.tetratelabs.com`. The patch service records the revision as its own version, e.g. `1.9.2.1`.
+
 ## Documentation
 
 * [Blog][blog] introducing Envoy Gateway.

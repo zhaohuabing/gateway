@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Optional release tag to process (e.g. v1.8.3-tetrate). If empty, resolve from current SHA."
+        description: "Optional release tag to process (e.g. v1.8.3-tetrate or v1.8.3.1-tetrate). If empty, resolve from current SHA."
         required: false
         type: string
 
@@ -62,15 +62,20 @@ jobs:
           version="${release_tag#v}"
           version="${version%-tetrate}"
           release_date="$(date -u +%F)"
-          # The eg-control-plane manifest's "gateway" variant is the public
-          # upstream Envoy Gateway controller, whose tag is the bare release
-          # version -- not this fork's "-tetrate" release tag. Only the FIPS
-          # variant is a Tetrate rebuild, and it keeps the full release tag,
-          # matching what tetrate-release-fips.yaml pushes.
-          non_fips_image="docker.io/envoyproxy/gateway:v${version}"
+          # The upstream "gateway" variant uses the bare version, not the -tetrate tag.
+          # A revision has no upstream image, so its "gateway" variant is the private
+          # build from tetrate-release.yaml. The FIPS variant keeps the full tag.
+          is_revision=false
+          if [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-tetrate$ ]]; then
+            is_revision=true
+            non_fips_image="tetrate-envoy-gateway.containers.dl.tetrate.io/gateway:${release_tag}"
+          else
+            non_fips_image="docker.io/envoyproxy/gateway:v${version}"
+          fi
           fips_image="fips-containers.teg.tetratelabs.com/gateway:${release_tag}"
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "is_revision=$is_revision" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "release_date=$release_date" >> "$GITHUB_OUTPUT"
@@ -89,6 +94,15 @@ jobs:
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: fips-containers.teg.tetratelabs.com
+          username: tetrate-ci
+          password: ${{ secrets.TETRATE_CI_CLOUDSMITH_API_KEY }}
+
+      # Lets the existence check below read a revision's private "gateway" image.
+      - name: Login to Enterprise Cloudsmith Registry
+        if: steps.release.outputs.skip != 'true' && steps.release.outputs.is_revision == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: tetrate-envoy-gateway.containers.dl.tetrate.io
           username: tetrate-ci
           password: ${{ secrets.TETRATE_CI_CLOUDSMITH_API_KEY }}
 
